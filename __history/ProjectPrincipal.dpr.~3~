@@ -1,0 +1,19 @@
+program ProjectPrincipal;
+
+uses
+  Vcl.Forms,
+  System.SysUtils,
+  UGerenciadorDePastasPrincipal in 'UGerenciadorDePastasPrincipal.pas' {FGerenciadorDePastas};
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.MainFormOnTaskbar := True;
+  Application.CreateForm(TFGerenciadorDePastas, FGerenciadorDePastas);
+  // Aqui tratamos o caminho passado via linha de comando
+  if ParamCount > 0 then
+    FGerenciadorDePastas.LabeledEdit1.Text := ParamStr(1);
+
+  Application.Run;
+end.

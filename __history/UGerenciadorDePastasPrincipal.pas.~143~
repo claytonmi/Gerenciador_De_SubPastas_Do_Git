@@ -1,0 +1,271 @@
+unit UGerenciadorDePastasPrincipal;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, System.IOUtils, System.Types,
+  Vcl.StdCtrls, Vcl.Buttons, Vcl.ExtCtrls, UClasseValidacao, TFormConfiguracaoGerenciador, Clipbrd, ShellAPI, System.UITypes, RichEdit, UFeedBack,
+  Vcl.ComCtrls, Vcl.Menus;
+
+procedure VerificarRepositoriosGit(const Caminho: string);
+
+
+type
+  TFGerenciadorDePastas = class(TForm)
+    btIniciar: TBitBtn;
+    btSair: TBitBtn;
+    Panel1: TPanel;
+    Panel2: TPanel;
+    ComboBoxBranch: TComboBox;
+    Label1: TLabel;
+    BtCopiarLog: TBitBtn;
+    BtAbrirLog: TBitBtn;
+    MemoLogNaTela: TRichEdit;
+    MainMenuAjuda: TMainMenu;
+    Menu1: TMenuItem;
+    Configuracao: TMenuItem;
+    GuiaDeUso: TMenuItem;
+    N2: TMenuItem;
+    Reportdebug: TMenuItem;
+    procedure FormCreate(Sender: TObject);
+    procedure btSairClick(Sender: TObject);
+    procedure btIniciarClick(Sender: TObject);
+    procedure MemoLogNaTela1Change(Sender: TObject);
+    procedure BtCopiarLogClick(Sender: TObject);
+    procedure BtAbrirLogClick(Sender: TObject);
+    procedure Logs();
+    procedure ConfiguracaoClick(Sender: TObject);
+    procedure GuiaDeUsoClick(Sender: TObject);
+    procedure ReportdebugClick(Sender: TObject);
+
+  private
+    { Private declarations }
+  public
+     procedure AdicionarLogNaTela(const Msg: string);
+    { Public declarations }
+  end;
+
+var
+  FGerenciadorDePastas: TFGerenciadorDePastas;
+  ListaDeRepositoriosGit: TStringList;
+
+implementation
+
+{$R *.dfm}
+
+procedure TFGerenciadorDePastas.BtAbrirLogClick(Sender: TObject);
+begin
+  if (ArquivoLogGlobal <> '') and FileExists(ArquivoLogGlobal) then
+  begin
+    ShellExecute(0, 'open', PChar(ArquivoLogGlobal), nil, nil, SW_SHOWNORMAL);
+  end
+  else
+  begin
+    MessageDlg('Arquivo de log não encontrado.', mtWarning, [mbOK], 0);
+  end;
+end;
+
+procedure TFGerenciadorDePastas.BtCopiarLogClick(Sender: TObject);
+begin
+  Clipboard.AsText := MemoLogNaTela.Text;
+end;
+
+procedure TFGerenciadorDePastas.btIniciarClick(Sender: TObject);
+var
+  BranchSelecionada, Cmd, PastaRepo, Linha: string;
+  Output: TStringList;
+  I: Integer;
+  SaidaCmd: string;
+begin
+  btIniciar.Enabled := false;
+  MemoLogNaTela.Clear;
+  Sleep(1000);
+  BranchSelecionada := ComboBoxBranch.Text;
+  ComboBoxBranch.Enabled:=false;
+  if BranchSelecionada = '' then
+  begin
+    ShowMessage('Selecione uma branch antes de iniciar.');
+    Exit;
+  end;
+  AdicionarLogNaTela('Branch selecionada: ' + BranchSelecionada);
+
+  for I := 0 to ListaDeRepositoriosGit.Count - 1 do
+  begin
+    PastaRepo := ListaDeRepositoriosGit[I];
+    AdicionarLogNaTela('Pasta: ' + PastaRepo);
+    if ArquivoLogGlobal <> '' then
+      TFile.AppendAllText(ArquivoLogGlobal, Format('Processando pasta: %s | Branch: %s%s',[PastaRepo, BranchSelecionada, sLineBreak]));
+
+    if not BranchExiste(PastaRepo, BranchSelecionada) then
+    begin
+      AdicionarLogNaTela('Branch não encontrada na pasta: ' + PastaRepo);
+      TFile.AppendAllText(ArquivoLogGlobal,'Branch nao encontrada na pasta. Ignorando.' + sLineBreak);
+      Continue;
+    end;
+
+    if BranchAtual(PastaRepo) = BranchSelecionada then
+    begin
+      AdicionarLogNaTela('Pull realizado no projeto '+PastaRepo+' na branch "' + BranchSelecionada + '"');
+      ExecutarComandoGit('pull', PastaRepo);
+    end
+    else
+    begin
+      if HaAlteracoesPendentes(PastaRepo) then
+      begin
+        ShowMessage('A pasta ' + PastaRepo + ' tem alterações pendentes. Faça commit, push ou revert antes.');
+        AdicionarLogNaTela('ERRO: Alterações pendentes na pasta "' + PastaRepo +'" Processo foi interrompido na pasta '+PastaRepo);
+        TFile.AppendAllText(ArquivoLogGlobal,'Alteracoes pendentes encontradas. Processo interrompido.' + sLineBreak);
+      end
+      else
+      begin
+        AdicionarLogNaTela('Checkout realizado no projeto ' + PastaRepo + ' para branch "' + BranchSelecionada+'"');
+        ExecutarComandoGit('checkout ' + BranchSelecionada, PastaRepo);
+        ExecutarComandoGit('pull', PastaRepo);
+      end;
+    end;
+  end;
+  AdicionarLogNaTela('|-----------------------------------|');
+  AdicionarLogNaTela('|Processo finalizado com sucesso.|');
+  AdicionarLogNaTela('|-----------------------------------|');
+  ComboBoxBranch.Enabled:=true;
+  btIniciar.Enabled := true;
+end;
+
+procedure TFGerenciadorDePastas.btSairClick(Sender: TObject);
+begin
+  Application.Terminate;
+end;
+
+procedure TFGerenciadorDePastas.ConfiguracaoClick(Sender: TObject);
+begin
+  NovaConfiguracaoGit;
+  ComboBoxBranch.Clear;
+  ObterBranchesUnicas(LerCaminhoGitDoINI, ListaDeRepositoriosGit, ComboBoxBranch.Items);
+end;
+
+procedure TFGerenciadorDePastas.FormCreate(Sender: TObject);
+var
+  DataHoje, ArquivoLogAtual, CaminhoGit, CaminhoProjetos: string;
+  InfoArq: TSearchRec;
+begin
+  OnLogMensagem := AdicionarLogNaTela;
+  ValidarConfiguracaoGit;
+  CaminhoProjetos := ParamStr(1); // pasta passada por parâmetro
+
+  if not TDirectory.Exists(CaminhoProjetos) then
+  begin
+    ShowMessage('Pasta de instalação não encontrada: ' + CaminhoProjetos);
+    Exit;
+  end;
+  Logs;
+
+  VerificarRepositoriosGit(CaminhoProjetos);
+
+  CaminhoGit := LerCaminhoGitDoINI;
+  ObterBranchesUnicas(CaminhoGit, ListaDeRepositoriosGit, ComboBoxBranch.Items);
+  ComboBoxBranch.Enabled:=true;
+  MemoLogNaTela.Clear;
+  MemoLogNaTela.ScrollBars := ssBoth ;
+  MemoLogNaTela.WordWrap := False ;
+  MemoLogNaTela.ReadOnly := True;
+  MemoLogNaTela.TabStop :=false;
+  MemoLogNaTela.Color := clBtnFace;
+  MemoLogNaTela.Font.Color := clBlack;
+  BtCopiarLog.Enabled := False;
+  BtAbrirLog.Enabled := False;
+end;
+
+procedure TFGerenciadorDePastas.GuiaDeUsoClick(Sender: TObject);
+var
+  CaminhoPDF: string;
+begin
+  CaminhoPDF := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
+                'Doc\GuiaDeUsuario.pdf';
+
+  if FileExists(CaminhoPDF) then
+    ShellExecute(0, 'open', PChar(CaminhoPDF), nil, nil, SW_SHOWNORMAL)
+  else
+    ShowMessage('O arquivo "GuiaDeUsuario.pdf" não foi encontrado na pasta Doc do sistema.');
+end;
+
+procedure TFGerenciadorDePastas.MemoLogNaTela1Change(Sender: TObject);
+begin
+  BtCopiarLog.Enabled := MemoLogNaTela.Lines.Count > 0;
+  BtAbrirLog.Enabled := MemoLogNaTela.Lines.Count > 0;
+end;
+
+procedure TFGerenciadorDePastas.ReportdebugClick(Sender: TObject);
+begin
+  if not Assigned(FFormFeedBack) then
+    Application.CreateForm(TFFormFeedBack, FFormFeedBack);
+
+  FFormFeedBack.ShowModal;
+end;
+
+procedure VerificarRepositoriosGit(const Caminho: string);
+var
+  SubPastas: TStringDynArray;
+  Pasta: string;
+begin
+  ListaDeRepositoriosGit.Clear;
+
+  SubPastas := TDirectory.GetDirectories(Caminho);
+  for Pasta in SubPastas do
+  begin
+    if TDirectory.Exists(TPath.Combine(Pasta, '.git')) then
+      ListaDeRepositoriosGit.Add(Pasta);
+  end;
+
+  if ListaDeRepositoriosGit.Count = 0 then
+  begin
+    TFile.AppendAllText(ArquivoLogGlobal, 'Não há subpastas com repositório Git nessa pasta.');
+    ShowMessage('Não há subpastas com repositório Git nessa pasta.');
+    Application.Terminate;
+  end;
+end;
+
+procedure TFGerenciadorDePastas.AdicionarLogNaTela(const Msg: string);
+begin
+  MemoLogNaTela.Lines.Add(Format('[%s] %s', [FormatDateTime('dd/mm/yyyy hh:nn:ss', Now), Msg]));
+  MemoLogNaTela.SelStart := Length(MemoLogNaTela.Text); // rolar para o fim
+end;
+
+procedure TFGerenciadorDePastas.Logs();
+var
+  LogsDir, DataHoje, ArquivoLogAtual: string;
+  InfoArq: TSearchRec;
+begin
+// Criar pasta Logs e configurar log do dia
+  LogsDir := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'Logs';
+  if not DirectoryExists(LogsDir) then
+    CreateDir(LogsDir);
+
+  DataHoje := FormatDateTime('dd-mm-yyyy', Now);
+
+  // Apagar logs de datas diferentes da atual
+  if FindFirst(LogsDir + '\cmd_git_*.log', faAnyFile, InfoArq) = 0 then
+  begin
+    repeat
+      if Pos(DataHoje, InfoArq.Name) = 0 then
+        DeleteFile(LogsDir + '\' + InfoArq.Name);
+    until FindNext(InfoArq) <> 0;
+    FindClose(InfoArq);
+  end;
+
+  // Criar novo nome de log com data e hora
+  ArquivoLogAtual := Format('cmd_git_%s.log', [FormatDateTime('dd-mm-yyyy_hh-nn-ss', Now)]);
+  ArquivoLogAtual := TPath.Combine(LogsDir, ArquivoLogAtual);
+
+  // Salvar caminho do log em variável global
+  UClasseValidacao.ArquivoLogGlobal := ArquivoLogAtual;
+end;
+
+initialization
+  ListaDeRepositoriosGit := TStringList.Create;
+
+finalization
+  ListaDeRepositoriosGit.Free;
+
+end.
+

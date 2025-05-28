@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2025/05/22 16:26:21.000.427,=E:\Projetos Delphi\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 16:27:08.000.769,E:\Projetos Delphi\GerenciadorDoGit2\UGerenciadorDePastasPrincipal.pas=E:\Projetos Delphi\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 16:27:08.000.769,E:\Projetos Delphi\GerenciadorDoGit2\UGerenciadorDePastasPrincipal.dfm=E:\Projetos Delphi\Unit1.dfm</Transaction>
+    <Transaction>2025/05/22 16:30:12.000.826,E:\Projetos Delphi\GerenciadorDoGit2\ProjectPrincipal.dproj=E:\Projetos Delphi\Project1.dproj</Transaction>
+    <Transaction>2025/05/22 16:38:47.000.805,E:\Projetos Delphi\GerenciadorDoGit2\GerenciadorDePastas.dproj=E:\Projetos Delphi\GerenciadorDoGit2\ProjectPrincipal.dproj</Transaction>
+    <Transaction>2025/05/22 19:12:08.000.070,=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 19:12:51.000.458,E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerinciador.dfm=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.dfm</Transaction>
+    <Transaction>2025/05/22 19:12:51.000.458,E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerinciador.pas=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 19:23:34.000.613,=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 19:41:33.000.613,=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 19:41:49.000.041,E:\Projetos Delphi\GerenciadorDoGit2\UClasseValidacao.pas=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 19:56:59.000.492,E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerenciador.pas=E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerinciador.pas</Transaction>
+    <Transaction>2025/05/22 19:56:59.000.492,E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerenciador.dfm=E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerinciador.dfm</Transaction>
+    <Transaction>2025/05/22 23:15:18.000.612,E:\Projetos Delphi\GerenciadorDoGit2\UConfiguracaoGerenciador.pas=</Transaction>
+    <Transaction>2025/05/22 23:15:39.000.653,=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/22 23:16:19.000.060,E:\Projetos Delphi\GerenciadorDoGit2\TFormConfiguracaoGerenciador.dfm=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.dfm</Transaction>
+    <Transaction>2025/05/22 23:16:19.000.060,E:\Projetos Delphi\GerenciadorDoGit2\TFormConfiguracaoGerenciador.pas=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/26 12:15:42.000.689,=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/26 18:08:17.000.795,=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/26 18:09:52.000.626,E:\Projetos Delphi\GerenciadorDoGit2\UFeedBack.dfm=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.dfm</Transaction>
+    <Transaction>2025/05/26 18:09:52.000.626,E:\Projetos Delphi\GerenciadorDoGit2\UFeedBack.pas=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
+    <Transaction>2025/05/26 20:59:57.000.185,=E:\Projetos Delphi\GerenciadorDoGit2\Target1.targets</Transaction>
+  </Transactions>
+</BorlandProject>

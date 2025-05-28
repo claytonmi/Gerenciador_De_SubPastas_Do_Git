@@ -1,0 +1,25 @@
+unit UConfiguracaoGerenciador;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs;
+
+type
+  TFormConfiguracaoGerenciador = class(TForm)
+  private
+    { Private declarations }
+  public
+    class function Execute: Boolean;
+    { Public declarations }
+  end;
+
+var
+  UConfiguracao: TUConfiguracao;
+
+implementation
+
+{$R *.dfm}
+
+end.
