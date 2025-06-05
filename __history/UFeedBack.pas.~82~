@@ -1,0 +1,177 @@
+unit UFeedBack;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
+  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls,
+  System.IniFiles, System.DateUtils, Vcl.Buttons,
+  System.Net.FileClient, System.Net.HttpClientComponent, System.NetEncoding, ShellAPI, System.Net.HttpClient, System.Net.URLClient, System.JSON, UClasseValidacao, System.IOUtils;
+
+type
+  TFFormFeedBack = class(TForm)
+    EditNome: TEdit;
+    EditEmail: TEdit;
+    MemoMensagem: TMemo;
+    BtnEnviar: TBitBtn;
+    BtnCancelar: TBitBtn;
+    Label1: TLabel;
+    Label2: TLabel;
+    LblStatus: TLabel;
+    procedure BtnEnviarClick(Sender: TObject);
+    procedure BtnCancelarClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure Logs();
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+var
+  FFormFeedBack: TFFormFeedBack;
+
+implementation
+
+{$R *.dfm}
+
+procedure TFFormFeedBack.BtnCancelarClick(Sender: TObject);
+begin
+  Close;
+end;
+
+procedure TFFormFeedBack.BtnEnviarClick(Sender: TObject);
+var
+  HTTPClient: TNetHTTPClient;
+  JsonToSend: TStringStream;
+  JsonObj: TJSONObject;
+  Response: IHTTPResponse;
+  Ini: TIniFile;
+  UltimoEnvioStr: string;
+  UltimoEnvio: TDateTime;
+  CaminhoINI: string;
+  ArquivoLogAtual: string;
+begin
+  // Caminho do arquivo INI
+  CaminhoINI := TPath.Combine(GetEnvironmentVariable('APPDATA'), 'FeedbackConfig.ini');
+  if ArquivoLogGlobal.Trim = '' then
+  begin
+    logs;
+  end;
+  if EditNome.text = ''  then
+  begin
+    ShowMessage('Campo nome deve ser preenchido.');
+  end;
+  if EditEmail.text = ''  then
+  begin
+    ShowMessage('Campo Email deve ser preenchido.');
+  end;
+  if MemoMensagem.text = ''  then
+  begin
+    ShowMessage('Campo de mensagem não pode ser vazio.');
+  end;
+
+  Ini := TIniFile.Create(CaminhoINI);
+  try
+    UltimoEnvioStr := Ini.ReadString('Feedback', 'UltimoEnvio', '');
+    if (UltimoEnvioStr <> '') and TryStrToDateTime(UltimoEnvioStr, UltimoEnvio) then
+    begin
+      if MinutesBetween(Now, UltimoEnvio) < 30 then
+      begin
+        TFile.AppendAllText(ArquivoLogGlobal, 'Muitas tentativas de envio de feedback. Aguarde um momento.');
+        LblStatus.Caption := 'Muitas tentativas de envio de feedback. Aguarde um momento.';
+        EditNome.Text:= '';
+        EditEmail.Text:= '';
+        MemoMensagem.Text:= '';
+        BtnEnviar.Enabled := False;
+        Exit;
+      end;
+    end;
+  finally
+    Ini.Free;
+  end;
+
+  // Envio do feedback
+  HTTPClient := TNetHTTPClient.Create(nil);
+  HTTPClient.CustomHeaders['x-api-key'] := 'b2b7a043eda08ecd48f4a65995b34bc2ed34d19cad3b177f2896231c50d7faf9';
+
+  try
+    JsonObj := TJSONObject.Create;
+    try
+      JsonObj.AddPair('nome', EditNome.Text);
+      JsonObj.AddPair('email', EditEmail.Text);
+      JsonObj.AddPair('mensagem', MemoMensagem.Lines.Text.Trim);
+      JsonObj.AddPair('sistema', 'Gerenciador De SubPastas Do Git');
+
+      JsonToSend := TStringStream.Create(JsonObj.ToString, TEncoding.UTF8);
+      try
+        Response := HTTPClient.Post('http://localhost:3000/api/feedback/send', JsonToSend, nil,
+          [TNameValuePair.Create('Content-Type', 'application/json')]);
+
+        TFile.AppendAllText(ArquivoLogGlobal, 'Resposta da API: ' + Response.ContentAsString());
+
+        // Atualiza o último envio no INI
+        Ini := TIniFile.Create(CaminhoINI);
+        try
+          Ini.WriteString('Feedback', 'UltimoEnvio', DateTimeToStr(Now));
+        finally
+          Ini.Free;
+        end;
+
+        BtnEnviar.Enabled := False;
+        LblStatus.Caption := 'Feedback enviado com sucesso!';
+      finally
+        JsonToSend.Free;
+      end;
+    finally
+      JsonObj.Free;
+    end;
+  finally
+    HTTPClient.Free;
+  end;
+end;
+
+procedure TFFormFeedBack.Logs();
+var
+  LogsDir, DataHoje, ArquivoLogAtual, FilePath: string;
+  InfoArq: TSearchRec;
+  Ret: Integer;
+begin
+  LogsDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'Logs');
+  if not DirectoryExists(LogsDir) then
+    ForceDirectories(LogsDir);
+
+  DataHoje := FormatDateTime('dd-mm-yyyy', Now);
+
+  Ret := FindFirst(PChar(TPath.Combine(LogsDir, 'cmd_git_*.log')), faAnyFile, InfoArq);
+  if Ret = 0 then
+  begin
+    repeat
+      if Pos(DataHoje, InfoArq.Name) = 0 then
+      begin
+        FilePath := TPath.Combine(LogsDir, InfoArq.Name);
+        if FileExists(FilePath) then
+          DeleteFile(FilePath);
+      end;
+      Ret := FindNext(InfoArq);
+    until Ret <> 0;
+    FindClose(InfoArq);
+  end;
+
+  ArquivoLogAtual := Format('cmd_git_%s.log', [FormatDateTime('dd-mm-yyyy_hh-nn-ss', Now)]);
+  ArquivoLogAtual := TPath.Combine(LogsDir, ArquivoLogAtual);
+
+  UClasseValidacao.ArquivoLogGlobal := ArquivoLogAtual;
+end;
+
+procedure TFFormFeedBack.FormCreate(Sender: TObject);
+begin
+  EditNome.Text:= '';
+  EditEmail.Text:= '';
+  MemoMensagem.Text:= '';
+  BtnEnviar.Enabled := True;
+  LblStatus.Caption := 'Pronto para enviar feedback.';
+end;
+
+end.
+

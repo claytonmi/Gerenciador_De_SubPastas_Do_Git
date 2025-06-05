@@ -1,0 +1,390 @@
+﻿unit UClasseValidacao;
+
+interface
+
+uses
+  System.SysUtils, System.IOUtils, System.IniFiles, Vcl.Dialogs, TFormConfiguracaoGerenciador, System.Classes, ShellAPI, TlHelp32, Winapi.Windows, Forms,
+  Vcl.Controls, System.Types,Vcl.StdCtrls, Vcl.Buttons, Vcl.ExtCtrls, Clipbrd, System.UITypes, RichEdit, Vcl.ComCtrls, Vcl.Menus;
+
+function CaminhoDoINI: string;
+function INIExiste: Boolean;
+function CaminhoPadraoGit: string;
+function GitNoCaminhoPadraoExiste: Boolean;
+procedure CriarINIComCaminhoPadrao;
+function LerCaminhoGitDoINI: string;
+function CaminhoGitEhValido(const CaminhoGit: string): Boolean;
+procedure ValidarConfiguracaoGit;
+procedure ObterBranchesUnicas(const CaminhoGitBin: string; const Repositorios: TStrings; const ListaBranches: TStrings);
+function ExecutarComandoGit(const Comando, Pasta: string): string;
+function BranchAtual(const Pasta: string): string;
+function BranchExiste(const Pasta, Branch: string): Boolean;
+function HaAlteracoesPendentes(const Pasta: string): Boolean;
+procedure NovaConfiguracaoGit;
+
+type
+  TLogCallback = procedure(const Msg: string) of object;
+
+
+var
+   OnLogMensagem: TLogCallback;
+   ArquivoLogGlobal: string = '';
+
+
+implementation
+
+uses
+UGerenciadorDePastasPrincipal;
+
+function CaminhoDoINI: string;
+begin
+  Result := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'ConfigGit.ini';
+end;
+
+procedure NovaConfiguracaoGit;
+var
+  UConfiguracao: TUConfiguracao;
+begin
+  UConfiguracao := TUConfiguracao.Create(nil);
+  try
+    UConfiguracao.ShowModal;
+  finally
+    UConfiguracao.Free;
+  end;
+end;
+
+function INIExiste: Boolean;
+begin
+  Result := FileExists(CaminhoDoINI);
+end;
+
+function CaminhoPadraoGit: string;
+begin
+  Result := 'C:\Program Files\Git\bin\';
+end;
+
+function GitNoCaminhoPadraoExiste: Boolean;
+begin
+  Result := DirectoryExists(CaminhoPadraoGit);
+end;
+
+procedure CriarINIComCaminhoPadrao;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(CaminhoDoINI);
+  try
+    Ini.WriteString('GIT', 'Caminho', CaminhoPadraoGit);
+  finally
+    Ini.Free;
+  end;
+end;
+
+function LerCaminhoGitDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('GIT', 'Caminho', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+function LerCaminhoPuTTYDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('PUTTY', 'CaminhoPPK', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+function LerCaminhoExePuTTYDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('PUTTY', 'CaminhoEXE', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+function CaminhoGitEhValido(const CaminhoGit: string): Boolean;
+begin
+  Result := DirectoryExists(CaminhoGit);
+end;
+
+function PuttyNoCaminhoPadraoExiste: Boolean;
+const
+  CaminhoPuttyPadrao = 'C:\Program Files\PuTTY';
+begin
+  Result := DirectoryExists(CaminhoPuttyPadrao);
+  if Result then
+  Begin
+    TFormConfiguracaoGerenciador.CaminhoPadraoPutty := CaminhoPuttyPadrao;
+    if LerCaminhoExePuTTYDoINI <> '' then
+    begin
+      TFile.AppendAllText(ArquivoLogGlobal,'PuTTY foi detectado no caminho padrão. Caso use configurações de segurança, configure-as no Gerenciador de Pastas.');
+    end;
+  End;
+end;
+
+function PageantEstaRodando: Boolean;
+var
+  SnapShot: THandle;
+  ProcEntry: TProcessEntry32;
+begin
+  Result := False;
+  SnapShot := CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if SnapShot = INVALID_HANDLE_VALUE then Exit;
+
+  ProcEntry.dwSize := SizeOf(TProcessEntry32);
+  if Process32First(SnapShot, ProcEntry) then
+  begin
+    repeat
+      if SameText(ExtractFileName(ProcEntry.szExeFile), 'pageant.exe') then
+      begin
+        Result := True;
+        Break;
+      end;
+    until not Process32Next(SnapShot, ProcEntry);
+  end;
+  CloseHandle(SnapShot);
+end;
+
+procedure ValidarConfiguracaoGit;
+var
+  CaminhoGit, CaminhoPuttyExe, CaminhoPuttyPPK, ComandoPageant, Parametros: string;
+begin
+  if not INIExiste then
+  begin
+    if GitNoCaminhoPadraoExiste then
+      CriarINIComCaminhoPadrao
+    else
+    begin
+      ShowMessage('Git não foi encontrado no caminho padrão ou não está instalado. Selecione o caminho da pasta bin do Git para continuar.');
+      if not TUConfiguracao.Execute then
+        Halt;
+      Exit;
+    end;
+  end;
+
+  CaminhoGit := LerCaminhoGitDoINI;
+
+  if not CaminhoGitEhValido(CaminhoGit) then
+  begin
+    ShowMessage('O caminho do Git no arquivo de configuração está incorreto.');
+    if not TUConfiguracao.Execute then
+      Halt;
+  end;
+
+  if LerCaminhoPuTTYDoINI = '' then
+  begin
+    PuttyNoCaminhoPadraoExiste;
+  end;
+
+  // Verificação adicional para PuTTY
+  CaminhoPuttyExe := LerCaminhoExePuTTYDoINI;
+  CaminhoPuttyPPK := LerCaminhoPuTTYDoINI;
+
+  if (Trim(CaminhoPuttyExe) <> '') and FileExists(CaminhoPuttyExe) and
+     (Trim(CaminhoPuttyPPK) <> '') and DirectoryExists(CaminhoPuttyPPK) then
+  begin
+    if ExtractFileExt(CaminhoPuttyExe).ToLower <> '.ppk' then
+    begin
+      ShowMessage('O arquivo da chave PuTTY não possui a extensão .ppk.');
+      Exit;
+    end;
+
+    if not PageantEstaRodando then
+    begin
+      TFile.AppendAllText(ArquivoLogGlobal,'Será necessário carregar a chave PuTTY agora. Se ela estiver protegida, será solicitada a senha.');
+      OnLogMensagem('Será necessário carregar a chave PuTTY agora.'+ sLineBreak +' Se ela estiver protegida, será solicitada a senha.');
+      ShellExecute(0, 'open',
+             PChar(IncludeTrailingPathDelimiter(CaminhoPuttyPPK) + 'pageant.exe'),
+             PChar('"' + CaminhoPuttyExe + '"'),
+             nil, SW_SHOWNORMAL);
+    end
+    else
+    begin
+    TFile.AppendAllText(ArquivoLogGlobal, 'O Pageant já está em execução.Para que a autenticação funcione corretamente, verifique se a chave (.ppk) já foi carregada no Pageant.'+
+  'Se não estiver, localize o ícone do Pageant na bandeja do sistema (perto do relógio), clique com o botão direito e escolha "Add Key..." para carregar sua chave.'+
+  'Caso a chave esteja protegida por senha, será solicitado que você a digite no momento do carregamento.');
+      OnLogMensagem('O Pageant já está em execução. Acesso log para mais informções');
+    end;
+  end;
+end;
+
+procedure ObterBranchesUnicas(const CaminhoGitBin: string; const Repositorios: TStrings; const ListaBranches: TStrings);
+var
+  PastaRepo, Cmd, Linha, LinhaTratada, NomeBranch: string;
+  Saida, Locais, Remotas: TStringList;
+  I: Integer;
+  ProcessInfo: TProcessInformation;
+  StartupInfo: TStartupInfo;
+  SecurityAttr: TSecurityAttributes;
+  ReadPipe, WritePipe: THandle;
+  Buffer: array[0..1023] of AnsiChar;
+  BytesRead: DWORD;
+  CmdLineW: WideString;
+  CmdLinePW: PWideChar;
+begin
+  ListaBranches.Clear;
+  Locais := TStringList.Create;
+  Remotas := TStringList.Create;
+  Saida := TStringList.Create;
+
+  try
+    for I := 0 to Repositorios.Count - 1 do
+    begin
+      PastaRepo := Repositorios[I];
+
+      Cmd := Format('"%sgit.exe" -C "%s" for-each-ref --format="%%(refname)" refs/heads refs/remotes', [CaminhoGitBin, PastaRepo]);
+      CmdLineW := '"cmd.exe" /c "' + Cmd + '"';
+      CmdLinePW := PWideChar(CmdLineW);
+
+      ZeroMemory(@SecurityAttr, SizeOf(SecurityAttr));
+      SecurityAttr.nLength := SizeOf(SecurityAttr);
+      SecurityAttr.bInheritHandle := True;
+
+      if not CreatePipe(ReadPipe, WritePipe, @SecurityAttr, 0) then
+        Continue;
+
+      ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
+      StartupInfo.cb := SizeOf(StartupInfo);
+      StartupInfo.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
+      StartupInfo.hStdOutput := WritePipe;
+      StartupInfo.hStdError := WritePipe;
+      StartupInfo.wShowWindow := SW_HIDE;
+
+      if CreateProcessW(nil, CmdLinePW, nil, nil, True, CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
+      begin
+        CloseHandle(WritePipe);
+        FillChar(Buffer, SizeOf(Buffer), 0);
+        repeat
+          ReadFile(ReadPipe, Buffer, SizeOf(Buffer) - 1, BytesRead, nil);
+          if BytesRead > 0 then
+          begin
+            Buffer[BytesRead] := #0;
+            Saida.Text := Saida.Text + string(PAnsiChar(@Buffer));
+          end;
+        until BytesRead = 0;
+
+        for Linha in Saida do
+        begin
+          LinhaTratada := Trim(Linha);
+          if LinhaTratada.StartsWith('refs/heads/') then
+          begin
+            NomeBranch := Copy(LinhaTratada, Length('refs/heads/') + 1, MaxInt);
+            if (NomeBranch <> '') and (Locais.IndexOf(NomeBranch) = -1) then
+              Locais.Add(NomeBranch);
+          end
+          else if LinhaTratada.StartsWith('refs/remotes/origin/') then
+          begin
+            NomeBranch := Copy(LinhaTratada, Length('refs/remotes/origin/') + 1, MaxInt);
+            if (NomeBranch <> '') and (Remotas.IndexOf('remotes/origin/' + NomeBranch) = -1) then
+              Remotas.Add('remotes/origin/' + NomeBranch);
+          end;
+        end;
+
+        CloseHandle(ProcessInfo.hProcess);
+        CloseHandle(ProcessInfo.hThread);
+      end;
+      CloseHandle(ReadPipe);
+    end;
+
+    Locais.Sort;
+    Remotas.Sort;
+
+    ListaBranches.AddStrings(Locais);
+    ListaBranches.AddStrings(Remotas);
+
+    TFile.AppendAllText(ArquivoLogGlobal, CmdLineW + sLineBreak);
+  finally
+    Locais.Free;
+    Remotas.Free;
+    Saida.Free;
+  end;
+end;
+
+function ExecutarComandoGit(const Comando, Pasta: string): string;
+var
+  ArquivoSaida, CaminhoGitCompleto, LinhaComando: string;
+  SI: TStartupInfo;
+  PI: TProcessInformation;
+  ExitCode: DWORD;
+  CmdBat: string;
+begin
+  Result := '';
+  ArquivoSaida := TPath.Combine(TPath.GetTempPath, 'saida_git.txt');
+  CaminhoGitCompleto := LerCaminhoGitDoIni(); // deve retornar caminho completo para git.exe
+
+  if not DirectoryExists(CaminhoGitCompleto) then
+  begin
+    OnLogMensagem('Erro: Caminho do git inválido: ' + CaminhoGitCompleto);
+    Result := 'Erro: Caminho do Git inválido: ' + CaminhoGitCompleto;
+    Exit;
+  end;
+
+  LinhaComando := Format('"%sgit.exe" -C "%s" %s > "%s" 2>&1',[CaminhoGitCompleto, Pasta, Comando, ArquivoSaida]);
+  CmdBat := 'cmd.exe /c ' + '"' + LinhaComando + '"';
+  ZeroMemory(@SI, SizeOf(SI));
+  ZeroMemory(@PI, SizeOf(PI));
+  SI.cb := SizeOf(SI);
+  SI.dwFlags := STARTF_USESHOWWINDOW;
+  SI.wShowWindow := SW_HIDE;
+
+  if CreateProcess(nil, PChar('cmd.exe /c ' + '"' + LinhaComando + '"'), nil, nil, False,
+    CREATE_NO_WINDOW, nil, nil, SI, PI) then
+  begin
+    TFile.AppendAllText(ArquivoLogGlobal, 'Comando final: ' + CmdBat + sLineBreak);
+
+    // Espera até o processo terminar
+    WaitForSingleObject(PI.hProcess, INFINITE);
+    GetExitCodeProcess(PI.hProcess, ExitCode);
+    CloseHandle(PI.hProcess);
+    CloseHandle(PI.hThread);
+
+    // Lê o conteúdo do arquivo de saída
+    if TFile.Exists(ArquivoSaida) then
+      Result := TFile.ReadAllText(ArquivoSaida)
+    else
+      Result := 'Erro: arquivo de saída não encontrado.';
+  end
+  else
+    Result := 'Erro ao executar o comando do Git.';
+
+  TFile.AppendAllText(ArquivoLogGlobal, Format('[%s] CMD: git %s -C "%s" → %s' + sLineBreak,[DateTimeToStr(Now), Comando, Pasta, Result]));
+end;
+
+  function BranchAtual(const Pasta: string): string;
+  begin
+    Result := Trim(ExecutarComandoGit('rev-parse --abbrev-ref HEAD', Pasta));
+  end;
+
+  function BranchExiste(const Pasta, Branch: string): Boolean;
+  var
+    Resultado: string;
+  begin
+    Resultado := ExecutarComandoGit('branch --list ' + Branch, Pasta);
+    Result := Pos(Branch, Resultado) > 0;
+  end;
+
+  function HaAlteracoesPendentes(const Pasta: string): Boolean;
+  var
+    Resultado: string;
+  begin
+    Resultado := ExecutarComandoGit('status --porcelain', Pasta);
+    Result := Trim(Resultado) <> '';
+    if Result then
+      FGerenciadorDePastas.AdicionarLogNaTela('Alterações detectadas na pasta "' + Pasta + '":' + sLineBreak + Resultado);
+  end;
+
+end.
+

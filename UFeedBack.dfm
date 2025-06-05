@@ -2151,7 +2151,6 @@ object FFormFeedBack: TFFormFeedBack
     Height = 15
     Align = alBottom
     Alignment = taCenter
-    ExplicitTop = 414
     ExplicitWidth = 3
   end
   object EditNome: TEdit

@@ -4,7 +4,7 @@ interface
 
 uses
   System.SysUtils, System.IOUtils, System.IniFiles, Vcl.Dialogs, TFormConfiguracaoGerenciador, System.Classes, ShellAPI, TlHelp32, Winapi.Windows, Forms,
-  Vcl.Controls, System.Types,Vcl.StdCtrls, Vcl.Buttons, Vcl.ExtCtrls, Clipbrd, System.UITypes, RichEdit, Vcl.ComCtrls, Vcl.Menus;
+  Vcl.Controls, System.Types,Vcl.StdCtrls, Vcl.Buttons, Vcl.ExtCtrls, Clipbrd, System.UITypes, RichEdit, Vcl.ComCtrls, Vcl.Menus, StrUtils;
 
 function CaminhoDoINI: string;
 function INIExiste: Boolean;
@@ -198,7 +198,7 @@ begin
   begin
     if ExtractFileExt(CaminhoPuttyExe).ToLower <> '.ppk' then
     begin
-      ShowMessage('O arquivo da chave PuTTY não possui a extensão .ppk.');
+      TFile.AppendAllText(ArquivoLogGlobal,'O arquivo da chave PuTTY não possui a extensão .ppk.');
       Exit;
     end;
 
@@ -223,8 +223,8 @@ end;
 
 procedure ObterBranchesUnicas(const CaminhoGitBin: string; const Repositorios: TStrings; const ListaBranches: TStrings);
 var
-  PastaRepo, Cmd, Linha, LinhaTratada: string;
-  Saida: TStringList;
+  PastaRepo, Cmd, Linha, LinhaTratada, NomeBranch: string;
+  Saida, Locais, Remotas: TStringList;
   I: Integer;
   ProcessInfo: TProcessInformation;
   StartupInfo: TStartupInfo;
@@ -236,37 +236,36 @@ var
   CmdLinePW: PWideChar;
 begin
   ListaBranches.Clear;
+  Locais := TStringList.Create;
+  Remotas := TStringList.Create;
+  Saida := TStringList.Create;
 
-  for I := 0 to Repositorios.Count - 1 do
-  begin
-    PastaRepo := Repositorios[I];
-
-
-    Cmd := Format('"%sgit.exe" -C "%s" for-each-ref --format="%%(refname)" refs/heads refs/remotes'+'"'+'',[CaminhoGitBin, PastaRepo]);
-    CmdLineW := '"cmd.exe'+'"'+' /c "' + Cmd;
-    CmdLinePW := PWideChar(CmdLineW);
-
-    ZeroMemory(@SecurityAttr, SizeOf(SecurityAttr));
-    SecurityAttr.nLength := SizeOf(SecurityAttr);
-    SecurityAttr.bInheritHandle := True;
-
-    if not CreatePipe(ReadPipe, WritePipe, @SecurityAttr, 0) then
-      Continue;
-
-    ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
-    StartupInfo.cb := SizeOf(StartupInfo);
-    StartupInfo.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
-    StartupInfo.hStdOutput := WritePipe;
-    StartupInfo.hStdError := WritePipe;
-    StartupInfo.wShowWindow := SW_HIDE;
-
-
-    if CreateProcessW(nil, CmdLinePW, nil, nil, True, CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
+  try
+    for I := 0 to Repositorios.Count - 1 do
     begin
-      CloseHandle(WritePipe);
+      PastaRepo := Repositorios[I];
 
-      Saida := TStringList.Create;
-      try
+      Cmd := Format('"%sgit.exe" -C "%s" for-each-ref --format="%%(refname)" refs/heads refs/remotes', [CaminhoGitBin, PastaRepo]);
+      CmdLineW := '"cmd.exe" /c "' + Cmd + '"';
+      CmdLinePW := PWideChar(CmdLineW);
+
+      ZeroMemory(@SecurityAttr, SizeOf(SecurityAttr));
+      SecurityAttr.nLength := SizeOf(SecurityAttr);
+      SecurityAttr.bInheritHandle := True;
+
+      if not CreatePipe(ReadPipe, WritePipe, @SecurityAttr, 0) then
+        Continue;
+
+      ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
+      StartupInfo.cb := SizeOf(StartupInfo);
+      StartupInfo.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
+      StartupInfo.hStdOutput := WritePipe;
+      StartupInfo.hStdError := WritePipe;
+      StartupInfo.wShowWindow := SW_HIDE;
+
+      if CreateProcessW(nil, CmdLinePW, nil, nil, True, CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
+      begin
+        CloseHandle(WritePipe);
         FillChar(Buffer, SizeOf(Buffer), 0);
         repeat
           ReadFile(ReadPipe, Buffer, SizeOf(Buffer) - 1, BytesRead, nil);
@@ -277,34 +276,40 @@ begin
           end;
         until BytesRead = 0;
 
-
         for Linha in Saida do
         begin
           LinhaTratada := Trim(Linha);
           if LinhaTratada.StartsWith('refs/heads/') then
-            LinhaTratada := Copy(LinhaTratada, Length('refs/heads/') + 1, MaxInt)
-          else if LinhaTratada.StartsWith('refs/remotes/') then
           begin
-            // Ignora branches duplicadas com prefixo remotes/origin/
-            LinhaTratada := Copy(LinhaTratada, Length('refs/remotes/') + 1, MaxInt);
-            if LinhaTratada.StartsWith('origin/') then
-              LinhaTratada := Copy(LinhaTratada, Length('origin/') + 1, MaxInt);
+            NomeBranch := Copy(LinhaTratada, Length('refs/heads/') + 1, MaxInt);
+            if (NomeBranch <> '') and (Locais.IndexOf(NomeBranch) = -1) then
+              Locais.Add(NomeBranch);
           end
-          else
-            Continue;
-
-          if (LinhaTratada <> '') and (ListaBranches.IndexOf(LinhaTratada) = -1) then
-            ListaBranches.Add(LinhaTratada);
+          else if LinhaTratada.StartsWith('refs/remotes/origin/') then
+          begin
+            NomeBranch := Copy(LinhaTratada, Length('refs/remotes/origin/') + 1, MaxInt);
+            if (NomeBranch <> '') and (Remotas.IndexOf('remotes/origin/' + NomeBranch) = -1) then
+              Remotas.Add('remotes/origin/' + NomeBranch);
+          end;
         end;
-        TFile.AppendAllText(ArquivoLogGlobal, CmdLineW + sLineBreak);
-      finally
-        Saida.Free;
-      end;
 
-      CloseHandle(ProcessInfo.hProcess);
-      CloseHandle(ProcessInfo.hThread);
+        CloseHandle(ProcessInfo.hProcess);
+        CloseHandle(ProcessInfo.hThread);
+      end;
+      CloseHandle(ReadPipe);
     end;
-    CloseHandle(ReadPipe);
+
+    Locais.Sort;
+    Remotas.Sort;
+
+    ListaBranches.AddStrings(Locais);
+    ListaBranches.AddStrings(Remotas);
+
+    TFile.AppendAllText(ArquivoLogGlobal, CmdLineW + sLineBreak);
+  finally
+    Locais.Free;
+    Remotas.Free;
+    Saida.Free;
   end;
 end;
 
@@ -363,13 +368,24 @@ end;
     Result := Trim(ExecutarComandoGit('rev-parse --abbrev-ref HEAD', Pasta));
   end;
 
-  function BranchExiste(const Pasta, Branch: string): Boolean;
-  var
-    Resultado: string;
-  begin
-    Resultado := ExecutarComandoGit('branch --list ' + Branch, Pasta);
-    Result := Pos(Branch, Resultado) > 0;
-  end;
+function BranchExiste(const Pasta, Branch: string): Boolean;
+var
+  Resultado: string;
+  BranchNormalizada: string;
+begin
+  // Remove "remotes/" do início, se existir
+  if StartsText('remotes/origin/', Branch) then
+    BranchNormalizada := Copy(Branch, Length('remotes/origin/') + 1, MaxInt)
+  else
+    BranchNormalizada := Branch;
+
+  // Lista todas as branches, incluindo remotas
+  Resultado := ExecutarComandoGit('branch -a', Pasta); // -a lista todas, inclusive remotas
+
+  // Verifica se a branch existe (com ou sem o prefixo 'remotes/')
+  Result := Pos(BranchNormalizada, Resultado) > 0;
+end;
+
 
   function HaAlteracoesPendentes(const Pasta: string): Boolean;
   var

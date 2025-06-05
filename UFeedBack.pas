@@ -40,6 +40,39 @@ begin
   Close;
 end;
 
+function GetEnvValue(const Key: string): string;
+var
+  EnvFile: TStringList;
+  I: Integer;
+  Line, CurrentKey, Value: string;
+begin
+  Result := '';
+  EnvFile := TStringList.Create;
+  try
+    if FileExists('.env') then
+    begin
+      EnvFile.LoadFromFile('.env');
+      for I := 0 to EnvFile.Count - 1 do
+      begin
+        Line := Trim(EnvFile[I]);
+        if (Line = '') or (Line[1] = '#') then Continue; // ignora comentários e comentários
+        if Pos('=', Line) > 0 then
+        begin
+          CurrentKey := Trim(Copy(Line, 1, Pos('=', Line) - 1));
+          Value := Trim(Copy(Line, Pos('=', Line) + 1, MaxInt));
+          if SameText(CurrentKey, Key) then
+          begin
+            Result := Value;
+            Exit;
+          end;
+        end;
+      end;
+    end;
+  finally
+    EnvFile.Free;
+  end;
+end;
+
 procedure TFFormFeedBack.BtnEnviarClick(Sender: TObject);
 var
   HTTPClient: TNetHTTPClient;
@@ -50,7 +83,7 @@ var
   UltimoEnvioStr: string;
   UltimoEnvio: TDateTime;
   CaminhoINI: string;
-  ArquivoLogAtual: string;
+  ArquivoLogAtual, ApiUrl: string;
 begin
   // Caminho do arquivo INI
   CaminhoINI := TPath.Combine(GetEnvironmentVariable('APPDATA'), 'FeedbackConfig.ini');
@@ -101,10 +134,17 @@ begin
       JsonObj.AddPair('nome', EditNome.Text);
       JsonObj.AddPair('email', EditEmail.Text);
       JsonObj.AddPair('mensagem', MemoMensagem.Lines.Text.Trim);
+      JsonObj.AddPair('sistema', 'Gerenciador De SubPastas Do Git');
 
       JsonToSend := TStringStream.Create(JsonObj.ToString, TEncoding.UTF8);
       try
-        Response := HTTPClient.Post('http://localhost:3000/api/feedback/send', JsonToSend, nil,
+        ApiUrl := GetEnvValue('API_URL');
+        if ApiUrl = '' then
+        begin
+          ShowMessage('Erro: Variável API_URL não definida no arquivo .env');
+          Exit;
+        end;
+        Response := HTTPClient.Post(ApiUrl, JsonToSend, nil,
           [TNameValuePair.Create('Content-Type', 'application/json')]);
 
         TFile.AppendAllText(ArquivoLogGlobal, 'Resposta da API: ' + Response.ContentAsString());

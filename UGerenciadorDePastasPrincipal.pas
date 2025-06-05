@@ -6,7 +6,7 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, System.IOUtils, System.Types,
   Vcl.StdCtrls, Vcl.Buttons, Vcl.ExtCtrls, UClasseValidacao, TFormConfiguracaoGerenciador, Clipbrd, ShellAPI, System.UITypes, RichEdit, UFeedBack,
-  Vcl.ComCtrls, Vcl.Menus;
+  Vcl.ComCtrls, Vcl.Menus, StrUtils;
 
 procedure VerificarRepositoriosGit(const Caminho: string);
 
@@ -28,6 +28,9 @@ type
     GuiaDeUso: TMenuItem;
     N2: TMenuItem;
     Reportdebug: TMenuItem;
+    Label2: TLabel;
+    ComboBoxSubPastas: TComboBox;
+    ProgressBarCarregamento: TProgressBar;
     procedure Logs();
     procedure FormCreate(Sender: TObject);
     procedure btSairClick(Sender: TObject);
@@ -38,6 +41,9 @@ type
     procedure ConfiguracaoClick(Sender: TObject);
     procedure GuiaDeUsoClick(Sender: TObject);
     procedure ReportdebugClick(Sender: TObject);
+    procedure PreencherComboBoxSubPastas;
+    procedure CarregamentoProgress;
+    procedure ComboBoxSubPastasChange(Sender: TObject);
 
   private
     { Private declarations }
@@ -71,70 +77,325 @@ begin
   Clipboard.AsText := MemoLogNaTela.Text;
 end;
 
+procedure TFGerenciadorDePastas.CarregamentoProgress;
+begin
+  ProgressBarCarregamento.Min := 0;
+  ProgressBarCarregamento.Max := 100;
+
+  if ProgressBarCarregamento.Position + 10 <= ProgressBarCarregamento.Max then
+    ProgressBarCarregamento.Position := ProgressBarCarregamento.Position + 25
+  else
+    ProgressBarCarregamento.Position := ProgressBarCarregamento.Max;
+end;
+
+
 procedure TFGerenciadorDePastas.btIniciarClick(Sender: TObject);
 var
-  BranchSelecionada, Cmd, PastaRepo, Linha: string;
-  Output: TStringList;
+  BranchSelecionada, BranchLocal, PastaRepo, Resultado, PastaSelecionada: string;
   I: Integer;
-  SaidaCmd: string;
+  BranchLocalExiste: Boolean;
 begin
+  ProgressBarCarregamento.Position:=0;
   btIniciar.Enabled := false;
   MemoLogNaTela.Clear;
   Sleep(1000);
   BranchSelecionada := ComboBoxBranch.Text;
-  ComboBoxBranch.Enabled:=false;
+  ComboBoxBranch.Enabled := false;
+  ComboBoxSubPastas.Enabled := false;
+  PastaSelecionada := ComboBoxSubPastas.Text;
+
   if BranchSelecionada = '' then
   begin
     ShowMessage('Selecione uma branch antes de iniciar.');
     Exit;
   end;
+  CarregamentoProgress;
   AdicionarLogNaTela('Branch selecionada: ' + BranchSelecionada);
 
-  for I := 0 to ListaDeRepositoriosGit.Count - 1 do
+  if PastaSelecionada = '--- Todas as sub pastas ---' then
   begin
-    PastaRepo := ListaDeRepositoriosGit[I];
-    AdicionarLogNaTela('Pasta: ' + PastaRepo);
-    if ArquivoLogGlobal <> '' then
-      TFile.AppendAllText(ArquivoLogGlobal, Format('Processando pasta: %s | Branch: %s%s',[PastaRepo, BranchSelecionada, sLineBreak]));
 
-    if not BranchExiste(PastaRepo, BranchSelecionada) then
-    begin
-      AdicionarLogNaTela('Branch não encontrada na pasta: ' + PastaRepo);
-      TFile.AppendAllText(ArquivoLogGlobal,'Branch nao encontrada na pasta. Ignorando.' + sLineBreak);
-      Continue;
-    end;
+    CarregamentoProgress;
 
-    if BranchAtual(PastaRepo) = BranchSelecionada then
+    for I := 0 to ListaDeRepositoriosGit.Count - 1 do
     begin
-      AdicionarLogNaTela('Pull realizado no projeto '+PastaRepo+' na branch "' + BranchSelecionada + '"');
-      ExecutarComandoGit('pull', PastaRepo);
-    end
-    else
-    begin
-      if HaAlteracoesPendentes(PastaRepo) then
+      PastaRepo := ListaDeRepositoriosGit[I];
+      AdicionarLogNaTela('Pasta: ' + PastaRepo);
+
+      if ArquivoLogGlobal <> '' then
+        TFile.AppendAllText(ArquivoLogGlobal, Format('Processando pasta: %s | Branch: %s%s', [PastaRepo, BranchSelecionada, sLineBreak]));
+
+      ExecutarComandoGit('fetch', PastaRepo); // Atualiza branches remotas
+      if StartsText('remotes/origin/', BranchSelecionada) then
       begin
-        ShowMessage('A pasta ' + PastaRepo + ' tem alterações pendentes. Faça commit, push ou revert antes.');
-        AdicionarLogNaTela('ERRO: Alterações pendentes na pasta "' + PastaRepo +'" Processo foi interrompido na pasta '+PastaRepo);
-        TFile.AppendAllText(ArquivoLogGlobal,'Alteracoes pendentes encontradas. Processo interrompido.' + sLineBreak);
+        // nome da branch local que corresponderia à remota
+        BranchLocal := Copy(BranchSelecionada, Length('remotes/origin/') + 1, MaxInt);
+        BranchLocalExiste := BranchExiste(PastaRepo, BranchLocal);
+
+        if not BranchLocalExiste then
+        begin
+          // Se não existe a branch local, cria rastreando a remota
+          AdicionarLogNaTela(Format('Branch local "%s" não existe. Criando a partir da Branch "%s".', [BranchLocal, BranchSelecionada]));
+          Resultado := ExecutarComandoGit(Format('checkout -b %s %s', [BranchLocal, BranchSelecionada]), PastaRepo);
+          if Pos('error', LowerCase(Resultado)) <> 0 then
+          begin
+            AdicionarLogNaTela('Erro ao criar branch local: ' + Resultado);
+            Continue;
+          end;
+          // Atualiza a branch local depois de criada
+          Resultado := ExecutarComandoGit('pull', PastaRepo);
+          if Pos('conflict', LowerCase(Resultado)) <> 0 then
+          begin
+            ShowMessage('Conflito ao atualizar branch local "' + BranchLocal + '" em ' + PastaRepo + '. Resolva manualmente.');
+            AdicionarLogNaTela('Conflito ao fazer pull na branch local ' + BranchLocal);
+            Continue;
+          end;
+        end
+        else
+        begin
+          // Branch local existe, sincronizar com remota
+          AdicionarLogNaTela('Branch local "' + BranchLocal + '" existe. Atualizando com Branch ' + BranchSelecionada);
+
+          // Antes de checkout, verificar se há alterações pendentes
+          if HaAlteracoesPendentes(PastaRepo) then
+          begin
+            ShowMessage('A pasta ' + PastaRepo + ' tem alterações pendentes. Faça commit, push ou revert antes.');
+            AdicionarLogNaTela('ERRO: Alterações pendentes na pasta "' + PastaRepo + '". Processo interrompido.');
+            Continue;
+          end;
+
+          Resultado := ExecutarComandoGit('checkout ' + BranchLocal, PastaRepo);
+          if Pos('error', LowerCase(Resultado)) <> 0 then
+          begin
+            AdicionarLogNaTela('Erro no checkout da branch local: ' + Resultado);
+            Continue;
+          end;
+
+          Resultado := ExecutarComandoGit('pull', PastaRepo);
+          if Pos('conflict', LowerCase(Resultado)) <> 0 then
+          begin
+            ShowMessage('Conflito ao atualizar branch local "' + BranchLocal + '" em ' + PastaRepo + '. Resolva manualmente.');
+            AdicionarLogNaTela('Conflito ao fazer pull na branch local ' + BranchLocal);
+            Continue;
+          end;
+        end;
       end
       else
       begin
-        AdicionarLogNaTela('Checkout realizado no projeto ' + PastaRepo + ' para branch "' + BranchSelecionada+'"');
-        ExecutarComandoGit('checkout ' + BranchSelecionada, PastaRepo);
-        ExecutarComandoGit('pull', PastaRepo);
+        // Branch selecionada é local, tratar normal
+        if not BranchExiste(PastaRepo, BranchSelecionada) then
+        begin
+          AdicionarLogNaTela('Branch "' + BranchSelecionada + '" não encontrada localmente na pasta: ' + PastaRepo);
+          TFile.AppendAllText(ArquivoLogGlobal, 'Branch inexistente localmente e não é remota. Ignorando.' + sLineBreak);
+          Continue;
+        end;
+
+        if BranchAtual(PastaRepo) = BranchSelecionada then
+        begin
+          AdicionarLogNaTela('Branch atual já é: ' + BranchSelecionada);
+          AdicionarLogNaTela('Realizando pull na branch: ' + BranchSelecionada);
+          ExecutarComandoGit('pull', PastaRepo);
+        end
+        else
+        begin
+          if HaAlteracoesPendentes(PastaRepo) then
+          begin
+            ShowMessage('A pasta ' + PastaRepo + ' tem alterações pendentes. Faça commit, push ou revert antes.');
+            AdicionarLogNaTela('ERRO: Alterações pendentes na pasta "' + PastaRepo + '". Processo interrompido.');
+            Continue;
+          end;
+
+          AdicionarLogNaTela('Fazendo checkout para branch local "' + BranchSelecionada + '"');
+          Resultado := ExecutarComandoGit('checkout ' + BranchSelecionada, PastaRepo);
+          if Pos('error', LowerCase(Resultado)) <> 0 then
+          begin
+            AdicionarLogNaTela('Erro no checkout da branch: ' + Resultado);
+            Continue;
+          end;
+
+          Resultado := ExecutarComandoGit('pull', PastaRepo);
+          if Pos('conflict', LowerCase(Resultado)) <> 0 then
+          begin
+            ShowMessage('Conflito ao atualizar branch "' + BranchSelecionada + '" em ' + PastaRepo + '. Resolva manualmente.');
+            AdicionarLogNaTela('Conflito ao fazer pull na branch ' + BranchSelecionada);
+            Continue;
+          end;
+        end;
       end;
     end;
+    CarregamentoProgress;
+  end
+  else
+  begin
+      CarregamentoProgress;
+
+      for I := 0 to ListaDeRepositoriosGit.Count - 1 do
+      begin
+        if ExtractFileName(ListaDeRepositoriosGit[I]) = PastaSelecionada then
+        begin
+          PastaRepo := ListaDeRepositoriosGit[I];
+          Break;
+        end;
+      end;
+
+      AdicionarLogNaTela('Pasta: ' + PastaRepo);
+
+      if ArquivoLogGlobal <> '' then
+        TFile.AppendAllText(ArquivoLogGlobal, Format('Processando pasta: %s | Branch: %s%s', [PastaRepo, BranchSelecionada, sLineBreak]));
+
+      ExecutarComandoGit('fetch', PastaRepo); // Atualiza branches remotas
+
+      if StartsText('remotes/origin/', BranchSelecionada) then
+      begin
+
+        // nome da branch local que corresponderia à remota
+        BranchLocal := Copy(BranchSelecionada, Length('remotes/origin/') + 1, MaxInt);
+        BranchLocalExiste := BranchExiste(PastaRepo, BranchLocal);
+
+        if not BranchLocalExiste then
+        begin
+          // Se não existe a branch local, cria rastreando a remota
+          AdicionarLogNaTela(Format('Branch local "%s" não existe. Criando a partir da Branch "%s".', [BranchLocal, BranchSelecionada]));
+          Resultado := ExecutarComandoGit(Format('checkout -b %s %s', [BranchLocal, BranchSelecionada]), PastaRepo);
+          if Pos('error', LowerCase(Resultado)) <> 0 then
+          begin
+            AdicionarLogNaTela('Erro ao criar branch local: ' + Resultado);
+          end;
+          // Atualiza a branch local depois de criada
+          Resultado := ExecutarComandoGit('pull', PastaRepo);
+          if Pos('conflict', LowerCase(Resultado)) <> 0 then
+          begin
+            ShowMessage('Conflito ao atualizar branch local "' + BranchLocal + '" em ' + PastaRepo + '. Resolva manualmente.');
+            AdicionarLogNaTela('Conflito ao fazer pull na branch local ' + BranchLocal);
+          end;
+        end
+        else
+        begin
+          // Branch local existe, sincronizar com remota
+          AdicionarLogNaTela('Branch local "' + BranchLocal + '" existe. Atualizando com Branch ' + BranchSelecionada);
+
+          // Antes de checkout, verificar se há alterações pendentes
+          if HaAlteracoesPendentes(PastaRepo) then
+          begin
+            ShowMessage('A pasta ' + PastaRepo + ' tem alterações pendentes. Faça commit, push ou revert antes.');
+            AdicionarLogNaTela('ERRO: Alterações pendentes na pasta "' + PastaRepo + '". Processo interrompido.');
+          end;
+
+          Resultado := ExecutarComandoGit('checkout ' + BranchLocal, PastaRepo);
+          if Pos('error', LowerCase(Resultado)) <> 0 then
+          begin
+            AdicionarLogNaTela('Erro no checkout da branch local: ' + Resultado);
+          end;
+
+          Resultado := ExecutarComandoGit('pull', PastaRepo);
+          if Pos('conflict', LowerCase(Resultado)) <> 0 then
+          begin
+            ShowMessage('Conflito ao atualizar branch local "' + BranchLocal + '" em ' + PastaRepo + '. Resolva manualmente.');
+            AdicionarLogNaTela('Conflito ao fazer pull na branch local ' + BranchLocal);
+          end;
+        end;
+      end
+      else
+      begin
+
+        // Branch selecionada é local, tratar normal
+        if not BranchExiste(PastaRepo, BranchSelecionada) then
+        begin
+          AdicionarLogNaTela('Branch "' + BranchSelecionada + '" não encontrada localmente na pasta: ' + PastaRepo);
+          TFile.AppendAllText(ArquivoLogGlobal, 'Branch inexistente localmente e não é remota. Ignorando.' + sLineBreak);
+        end;
+
+        if BranchAtual(PastaRepo) = BranchSelecionada then
+        begin
+          AdicionarLogNaTela('Branch atual já é: ' + BranchSelecionada);
+          AdicionarLogNaTela('Realizando pull na branch: ' + BranchSelecionada);
+          ExecutarComandoGit('pull', PastaRepo);
+        end
+        else
+        begin
+          if HaAlteracoesPendentes(PastaRepo) then
+          begin
+            ShowMessage('A pasta ' + PastaRepo + ' tem alterações pendentes. Faça commit, push ou revert antes.');
+            AdicionarLogNaTela('ERRO: Alterações pendentes na pasta "' + PastaRepo + '". Processo interrompido.');
+          end;
+
+          AdicionarLogNaTela('Fazendo checkout para branch local "' + BranchSelecionada + '"');
+          Resultado := ExecutarComandoGit('checkout ' + BranchSelecionada, PastaRepo);
+          if Pos('error', LowerCase(Resultado)) <> 0 then
+          begin
+            AdicionarLogNaTela('Erro no checkout da branch: ' + Resultado);
+          end;
+
+          Resultado := ExecutarComandoGit('pull', PastaRepo);
+          if Pos('conflict', LowerCase(Resultado)) <> 0 then
+          begin
+            ShowMessage('Conflito ao atualizar branch "' + BranchSelecionada + '" em ' + PastaRepo + '. Resolva manualmente.');
+            AdicionarLogNaTela('Conflito ao fazer pull na branch ' + BranchSelecionada);
+          end;
+        end;
+      end;
+      CarregamentoProgress;
   end;
+
+
   AdicionarLogNaTela('|-----------------------------------|');
   AdicionarLogNaTela('|Processo finalizado com sucesso.|');
   AdicionarLogNaTela('|-----------------------------------|');
-  ComboBoxBranch.Enabled:=true;
+
+  CarregamentoProgress;
+  ComboBoxBranch.Enabled := true;
+  ComboBoxSubPastas.Enabled := true;
   btIniciar.Enabled := true;
 end;
+
 
 procedure TFGerenciadorDePastas.btSairClick(Sender: TObject);
 begin
   Application.Terminate;
+end;
+
+procedure TFGerenciadorDePastas.ComboBoxSubPastasChange(Sender: TObject);
+var
+  SubpastaSelecionada: string;
+  Repositorios: TStringList;
+  ListaBranches: TStringList;
+  I: Integer;
+  CaminhoCompleto: string;
+begin
+  ComboBoxBranch.Items.Clear;
+
+  Repositorios := TStringList.Create;
+  ListaBranches := TStringList.Create;
+  try
+    SubpastaSelecionada := ComboBoxSubPastas.Text;
+
+    if SubpastaSelecionada = '--- Todas as sub pastas ---' then
+    begin
+      Repositorios.Assign(ListaDeRepositoriosGit);
+    end
+    else
+    begin
+      // Busca o caminho completo correspondente ao nome da subpasta selecionada
+      for I := 0 to ListaDeRepositoriosGit.Count - 1 do
+      begin
+        CaminhoCompleto := ListaDeRepositoriosGit[I];
+        if ExtractFileName(CaminhoCompleto) = SubpastaSelecionada then
+        begin
+          Repositorios.Add(CaminhoCompleto);
+          Break;
+        end;
+      end;
+    end;
+
+    // Chama o método que obtém e ordena os branches
+    ObterBranchesUnicas(CaminhoGit, Repositorios, ListaBranches);
+
+    ComboBoxBranch.Items.AddStrings(ListaBranches);
+
+  finally
+    Repositorios.Free;
+    ListaBranches.Free;
+  end;
 end;
 
 procedure TFGerenciadorDePastas.ConfiguracaoClick(Sender: TObject);
@@ -142,6 +403,19 @@ begin
   NovaConfiguracaoGit;
   ComboBoxBranch.Clear;
   ObterBranchesUnicas(LerCaminhoGitDoINI, ListaDeRepositoriosGit, ComboBoxBranch.Items);
+end;
+
+procedure TFGerenciadorDePastas.PreencherComboBoxSubPastas;
+var
+  RepoPath: string;
+begin
+  ComboBoxSubPastas.Items.Clear;
+  ComboBoxSubPastas.Items.Add('--- Todas as sub pastas ---');
+
+  for RepoPath in ListaDeRepositoriosGit do
+    ComboBoxSubPastas.Items.Add(ExtractFileName(RepoPath)); // pega apenas o nome da subpasta
+
+  ComboBoxSubPastas.ItemIndex := 0;
 end;
 
 procedure TFGerenciadorDePastas.FormCreate(Sender: TObject);
@@ -161,6 +435,7 @@ begin
   Logs;
 
   VerificarRepositoriosGit(CaminhoProjetos);
+  PreencherComboBoxSubPastas;
 
   CaminhoGit := LerCaminhoGitDoINI;
   ObterBranchesUnicas(CaminhoGit, ListaDeRepositoriosGit, ComboBoxBranch.Items);
@@ -175,6 +450,7 @@ begin
   BtCopiarLog.Enabled := False;
   BtAbrirLog.Enabled := False;
 end;
+
 
 procedure TFGerenciadorDePastas.GuiaDeUsoClick(Sender: TObject);
 var
@@ -252,7 +528,12 @@ begin
 
   if ListaDeRepositoriosGit.Count = 0 then
   begin
-    TFile.AppendAllText(ArquivoLogGlobal, 'Não há subpastas com repositório Git nessa pasta.');
+    try
+      TFile.AppendAllText(ArquivoLogGlobal, 'Não há subpastas com repositório Git nessa pasta.', TEncoding.UTF8);
+    except
+      on E: Exception do
+        ShowMessage('Erro ao gravar log: ' + E.Message);
+    end;
     ShowMessage('Não há subpastas com repositório Git nessa pasta.');
     Application.Terminate;
   end;

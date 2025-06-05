@@ -1,0 +1,23 @@
+program GerenciadorDePastas;
+
+uses
+  Vcl.Forms,
+  System.SysUtils,
+  Vcl.Dialogs,
+  UGerenciadorDePastasPrincipal in 'UGerenciadorDePastasPrincipal.pas' {FGerenciadorDePastas},
+  UClasseValidacao in 'UClasseValidacao.pas',
+  TFormConfiguracaoGerenciador in 'TFormConfiguracaoGerenciador.pas' {UConfiguracao},
+  UFeedBack in 'UFeedBack.pas' {FFormFeedBack};
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.MainFormOnTaskbar := True;
+  Application.CreateForm(TFGerenciadorDePastas, FGerenciadorDePastas);
+  if ParamCount > 0 then
+  begin
+    VerificarRepositoriosGit(ParamStr(1));
+  end;
+  Application.Run;
+end.
