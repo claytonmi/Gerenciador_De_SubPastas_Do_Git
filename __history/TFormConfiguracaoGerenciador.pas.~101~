@@ -1,0 +1,257 @@
+unit TFormConfiguracaoGerenciador;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.Buttons, System.IniFiles, FileCtrl;
+
+type
+  TUConfiguracao = class(TForm)
+    OpenDialogConfiguracao: TOpenDialog;
+    BtPesquisar: TBitBtn;
+    EdCaminhoGitText: TEdit;
+    LabelTex: TLabel;
+    BtSalvar: TBitBtn;
+    BttSair: TBitBtn;
+    EdCaminhoPutty: TEdit;
+    Label1: TLabel;
+    BtPesquisarPuTTy: TBitBtn;
+    EditPuTTyKey: TEdit;
+    BTPuTTYKey: TBitBtn;
+    LabelPuttyKey: TLabel;
+    procedure BtPesquisarClick(Sender: TObject);
+    procedure BtSalvarClick(Sender: TObject);
+    procedure BttSairClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure BtPesquisarPuTTyClick(Sender: TObject);
+    procedure BTPuTTYKeyClick(Sender: TObject);
+    procedure ConfLayout;
+    procedure FormDestroy(Sender: TObject);
+
+  private
+    { Private declarations }
+  public
+    ModoInicial: Boolean;
+    class function Execute: Boolean;
+
+    { Public declarations }
+  end;
+
+var
+  UConfiguracao: TUConfiguracao;
+  CaminhoGit: string;
+  CaminhoPadraoPutty: string = '';
+
+
+implementation
+
+{$R *.dfm}
+
+procedure TUConfiguracao.BtPesquisarClick(Sender: TObject);
+var
+  PastaSelecionada: string;
+begin
+  if SelectDirectory('Selecione a pasta "bin" do Git', '', PastaSelecionada) then
+    EdCaminhoGitText.Text := PastaSelecionada;
+end;
+
+procedure TUConfiguracao.BtPesquisarPuTTyClick(Sender: TObject);
+var
+  PastaSelecionada: string;
+begin
+  if SelectDirectory('Selecione a pasta padrão "PuTTY"', '', PastaSelecionada) then
+  Begin
+    EdCaminhoPutty.Text := PastaSelecionada;
+    CaminhoPadraoPutty:= EdCaminhoPutty.Text;
+    ConfLayout;
+  End;
+end;
+
+procedure TUConfiguracao.BTPuTTYKeyClick(Sender: TObject);
+var
+  OpenDialogConfiguracao: TOpenDialog;
+begin
+ OpenDialogConfiguracao := TOpenDialog.Create(nil);
+  try
+    OpenDialogConfiguracao.Title := 'Selecione a key "PPK"';
+    OpenDialogConfiguracao.Filter := 'Arquivos PPK (*.ppk)|*.ppk';
+    OpenDialogConfiguracao.Options := [ofFileMustExist];
+
+    if OpenDialogConfiguracao.Execute then
+      EditPuTTyKey.Text := OpenDialogConfiguracao.FileName;
+  finally
+    OpenDialogConfiguracao.Free;
+  end;
+end;
+
+procedure TUConfiguracao.BtSalvarClick(Sender: TObject);
+var
+  Caminho, CaminhoPuTTY, CaminhoPPK: string;
+  Ini: TIniFile;
+begin
+  Caminho := IncludeTrailingPathDelimiter(EdCaminhoGitText.Text);
+  CaminhoPuTTY := EdCaminhoPutty.Text;
+  CaminhoPPK := EditPuTTyKey.Text;
+
+  if not FileExists(Caminho + 'git.exe') then
+  begin
+    ShowMessage('A pasta selecionada não contém o git.exe. Verifique se é realmente a pasta "bin" do Git.');
+    Exit;
+  end;
+
+  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'ConfigGit.ini');
+  try
+    Ini.WriteString('GIT', 'Caminho', Caminho);
+
+     if (Trim(CaminhoPuTTY) <> '') and DirectoryExists(CaminhoPuTTY) then
+     Begin
+
+      if Trim(CaminhoPPK) = '' then
+      begin
+        ShowMessage('Informe o caminho do arquivo de chave (ID.ppk) do PuTTY.');
+        Exit;
+      end;
+
+      if not FileExists(CaminhoPPK) then
+      begin
+        ShowMessage('O caminho do arquivo de chave (ID.ppk) não é válido.');
+        Exit;
+      end;
+      Ini.WriteString('PUTTY', 'CaminhoPPK', CaminhoPuTTY);
+      Ini.WriteString('PUTTY', 'CaminhoEXE', CaminhoPPK);
+     End;
+
+    ShowMessage('Caminho salvo com sucesso!');
+  finally
+    Ini.Free;
+  end;
+
+  ModalResult := mrOk; // Fecha o formulário
+end;
+
+class function TUConfiguracao.Execute: Boolean;
+var
+  Frm: TUConfiguracao;
+begin
+
+  Frm := TUConfiguracao.Create(nil);
+  try
+    Result := (Frm.ShowModal = mrOk);
+  finally
+    Frm.Free;
+  end;
+end;
+
+
+function LerCaminhoGitDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('GIT', 'Caminho', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+function LerCaminhoPPKDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('PUTTY', 'CaminhoPPK', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+function LerCaminhoEXEPPKDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('PUTTY', 'CaminhoEXE', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+
+
+procedure TUConfiguracao.BttSairClick(Sender: TObject);
+begin
+  if LerCaminhoGitDoINI = '' then
+  begin
+    Application.Terminate;
+  end
+  else
+  begin
+    ConfLayout;
+    close;
+  end;
+end;
+
+procedure TUConfiguracao.ConfLayout;
+begin
+  if LerCaminhoPPKDoINI <> '' then
+  Begin
+    CaminhoPadraoPutty := LerCaminhoPPKDoINI;
+  End;
+
+   // Preenche o caminho do PuTTY se estiver disponível
+  if CaminhoPadraoPutty <> '' then
+  Begin
+    if LerCaminhoPPKDoINI <> '' then
+    Begin
+      EdCaminhoPutty.Text := LerCaminhoPPKDoINI;
+      EditPuTTyKey.Text := LerCaminhoEXEPPKDoINI;
+    End
+    else
+    begin
+      EdCaminhoPutty.Text:= '';
+      EdCaminhoPutty.Text := CaminhoPadraoPutty;
+    end;
+    BTPuTTYKey.Visible := true;
+    EditPuTTyKey.Visible := true;
+    LabelPuttyKey.Visible := true;
+    BtSalvar.Top := 168;
+    BttSair.Top := 168;
+    Self.ClientHeight := 198;
+  End
+  else
+  begin
+    BTPuTTYKey.Visible := false;
+    EditPuTTyKey.Visible := false;
+    LabelPuttyKey.Visible := false;
+    BtSalvar.Top := 118;
+    BttSair.Top := 118;
+    Self.ClientHeight := 144;
+  end;
+end;
+
+procedure TUConfiguracao.FormCreate(Sender: TObject);
+begin
+  EdCaminhoGitText.Text :=  LerCaminhoGitDoINI;
+
+  if LerCaminhoGitDoINI = '' then
+  begin
+    LabelTex.Caption := 'Configuração do caminho da pasta Bin do Git';
+  end
+  else
+  begin
+    LabelTex.Caption := 'Editar caminho da pasta Bin do Git';
+  end;
+  ConfLayout;
+end;
+
+
+procedure TUConfiguracao.FormDestroy(Sender: TObject);
+begin
+  ConfLayout;
+end;
+
+end.

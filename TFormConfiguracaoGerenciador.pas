@@ -62,7 +62,7 @@ begin
   if SelectDirectory('Selecione a pasta padrão "PuTTY"', '', PastaSelecionada) then
   Begin
     EdCaminhoPutty.Text := PastaSelecionada;
-    CaminhoPadraoPutty:= EdCaminhoPutty.Text;
+    CaminhoPadraoPutty := EdCaminhoPutty.Text;
     ConfLayout;
   End;
 end;
@@ -147,7 +147,7 @@ function LerCaminhoGitDoINI: string;
 var
   Ini: TIniFile;
 begin
-  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'ConfigGit.ini');
   try
     Result := Ini.ReadString('GIT', 'Caminho', '');
   finally
@@ -159,7 +159,7 @@ function LerCaminhoPPKDoINI: string;
 var
   Ini: TIniFile;
 begin
-  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'ConfigGit.ini');
   try
     Result := Ini.ReadString('PUTTY', 'CaminhoPPK', '');
   finally
@@ -171,7 +171,7 @@ function LerCaminhoEXEPPKDoINI: string;
 var
   Ini: TIniFile;
 begin
-  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'ConfigGit.ini');
   try
     Result := Ini.ReadString('PUTTY', 'CaminhoEXE', '');
   finally
@@ -195,23 +195,27 @@ end;
 
 procedure TUConfiguracao.ConfLayout;
 begin
-  if LerCaminhoPPKDoINI <> '' then
+  if (LerCaminhoEXEPPKDoINI = '') and (CaminhoPadraoPutty <> '') then
   Begin
-    CaminhoPadraoPutty := LerCaminhoPPKDoINI;
-  End;
+    EdCaminhoPutty.Text := CaminhoPadraoPutty;
+    BTPuTTYKey.Visible := true;
+    EditPuTTyKey.Visible := true;
+    LabelPuttyKey.Visible := true;
+    BtSalvar.Top := 168;
+    BttSair.Top := 168;
+    Self.ClientHeight := 198;
+  End
+  else if LerCaminhoEXEPPKDoINI <> '' then
+  Begin
+    EdCaminhoPutty.Text := LerCaminhoEXEPPKDoINI;
 
-   // Preenche o caminho do PuTTY se estiver disponível
-  if CaminhoPadraoPutty <> '' then
-  Begin
     if LerCaminhoPPKDoINI <> '' then
     Begin
-      EdCaminhoPutty.Text := LerCaminhoPPKDoINI;
-      EditPuTTyKey.Text := LerCaminhoEXEPPKDoINI;
+      EditPuTTyKey.Text := LerCaminhoPPKDoINI;
     End
     else
     begin
-      EdCaminhoPutty.Text:= '';
-      EdCaminhoPutty.Text := CaminhoPadraoPutty;
+      EditPuTTyKey.Text:= '';
     end;
     BTPuTTYKey.Visible := true;
     EditPuTTyKey.Visible := true;
@@ -234,6 +238,7 @@ end;
 procedure TUConfiguracao.FormCreate(Sender: TObject);
 begin
   EdCaminhoGitText.Text :=  LerCaminhoGitDoINI;
+  CaminhoPadraoPutty := LerCaminhoEXEPPKDoINI;
 
   if LerCaminhoGitDoINI = '' then
   begin
