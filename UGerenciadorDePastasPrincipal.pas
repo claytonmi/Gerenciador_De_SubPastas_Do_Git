@@ -399,10 +399,25 @@ begin
 end;
 
 procedure TFGerenciadorDePastas.ConfiguracaoClick(Sender: TObject);
+var
+  CaminhoGit: string;
 begin
-  NovaConfiguracaoGit;
+  if not NovaConfiguracaoGit then
+    Exit; // o usuário cancelou a configuração
   ComboBoxBranch.Clear;
-  ObterBranchesUnicas(LerCaminhoGitDoINI, ListaDeRepositoriosGit, ComboBoxBranch.Items);
+
+  CaminhoGit := LerCaminhoGitDoINI;
+  if Trim(CaminhoGit) = '' then
+  begin
+    ShowMessage('Caminho do Git não configurado. Vá em configurações e defina o caminho correto.');
+    Exit;
+  end;
+
+  if not DirectoryExists(CaminhoGit) then
+  begin
+    ShowMessage('O caminho do Git informado no arquivo de configuração não existe mais.');
+    Exit;
+  end;
 end;
 
 procedure TFGerenciadorDePastas.PreencherComboBoxSubPastas;

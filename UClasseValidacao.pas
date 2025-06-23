@@ -19,7 +19,8 @@ function ExecutarComandoGit(const Comando, Pasta: string): string;
 function BranchAtual(const Pasta: string): string;
 function BranchExiste(const Pasta, Branch: string): Boolean;
 function HaAlteracoesPendentes(const Pasta: string): Boolean;
-procedure NovaConfiguracaoGit;
+function NovaConfiguracaoGit: Boolean;
+
 
 type
   TLogCallback = procedure(const Msg: string) of object;
@@ -40,13 +41,14 @@ begin
   Result := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'ConfigGit.ini';
 end;
 
-procedure NovaConfiguracaoGit;
+function NovaConfiguracaoGit: Boolean;
 var
   UConfiguracao: TUConfiguracao;
 begin
+  Result := False;
   UConfiguracao := TUConfiguracao.Create(nil);
   try
-    UConfiguracao.ShowModal;
+    Result := (UConfiguracao.ShowModal = mrOk);
   finally
     UConfiguracao.Free;
   end;

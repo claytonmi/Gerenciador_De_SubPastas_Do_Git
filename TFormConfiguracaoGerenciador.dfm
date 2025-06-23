@@ -2127,8 +2127,11 @@ object UConfiguracao: TUConfiguracao
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF}
+  Menu = menuSeguranca
   Position = poScreenCenter
+  OnClose = FormClose
   OnCreate = FormCreate
+  OnKeyDown = FormKeyDown
   TextHeight = 15
   object LabelTex: TLabel
     Left = 16
@@ -2237,5 +2240,17 @@ object UConfiguracao: TUConfiguracao
   end
   object OpenDialogConfiguracao: TOpenDialog
     Left = 48
+  end
+  object menuSeguranca: TMainMenu
+    Left = 248
+    Top = 144
+    object MenuCripto: TMenuItem
+      Caption = 'Seguran'#231'a'
+      Visible = False
+      object CriptografarArquivoEnv2: TMenuItem
+        Caption = 'Criptografar Arquivo Env'
+        OnClick = CriptografarArquivoEnv2Click
+      end
+    end
   end
 end

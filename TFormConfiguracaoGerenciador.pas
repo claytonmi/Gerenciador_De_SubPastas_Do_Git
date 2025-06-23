@@ -4,7 +4,8 @@ interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.Buttons, System.IniFiles, FileCtrl;
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.Buttons, System.IniFiles, FileCtrl,
+  Vcl.Menus, System.NetEncoding, System.IOUtils;
 
 type
   TUConfiguracao = class(TForm)
@@ -20,6 +21,9 @@ type
     EditPuTTyKey: TEdit;
     BTPuTTYKey: TBitBtn;
     LabelPuttyKey: TLabel;
+    menuSeguranca: TMainMenu;
+    MenuCripto: TMenuItem;
+    CriptografarArquivoEnv2: TMenuItem;
     procedure BtPesquisarClick(Sender: TObject);
     procedure BtSalvarClick(Sender: TObject);
     procedure BttSairClick(Sender: TObject);
@@ -27,6 +31,9 @@ type
     procedure BtPesquisarPuTTyClick(Sender: TObject);
     procedure BTPuTTYKeyClick(Sender: TObject);
     procedure ConfLayout;
+    procedure CriptografarArquivoEnv2Click(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
 
   private
     { Private declarations }
@@ -142,12 +149,21 @@ begin
   end;
 end;
 
+function GetCaminhoINI: string;
+begin
+  Result := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'ConfigGit.ini';
+end;
 
 function LerCaminhoGitDoINI: string;
 var
   Ini: TIniFile;
+  Caminho: string;
 begin
-  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'ConfigGit.ini');
+  Result := '';
+  Caminho := GetCaminhoINI;
+  if not FileExists(Caminho) then Exit;
+
+  Ini := TIniFile.Create(Caminho);
   try
     Result := Ini.ReadString('GIT', 'Caminho', '');
   finally
@@ -158,8 +174,13 @@ end;
 function LerCaminhoPPKDoINI: string;
 var
   Ini: TIniFile;
+  Caminho: string;
 begin
-  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'ConfigGit.ini');
+  Result := '';
+  Caminho := GetCaminhoINI;
+  if not FileExists(Caminho) then Exit;
+
+  Ini := TIniFile.Create(Caminho);
   try
     Result := Ini.ReadString('PUTTY', 'CaminhoPPK', '');
   finally
@@ -170,8 +191,13 @@ end;
 function LerCaminhoEXEPPKDoINI: string;
 var
   Ini: TIniFile;
+  Caminho: string;
 begin
-  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'ConfigGit.ini');
+  Result := '';
+  Caminho := GetCaminhoINI;
+  if not FileExists(Caminho) then Exit;
+
+  Ini := TIniFile.Create(Caminho);
   try
     Result := Ini.ReadString('PUTTY', 'CaminhoEXE', '');
   finally
@@ -183,20 +209,20 @@ end;
 
 procedure TUConfiguracao.BttSairClick(Sender: TObject);
 begin
-  if LerCaminhoGitDoINI = '' then
+  if MenuCripto.Visible = true then
   begin
-    Application.Terminate;
-  end
-  else
-  begin
-    close;
+    MenuCripto.Visible := False;
   end;
+  if LerCaminhoGitDoINI = '' then
+    Application.Terminate
+  else
+    Close;
 end;
 
 procedure TUConfiguracao.ConfLayout;
 begin
   if (LerCaminhoEXEPPKDoINI = '') and (CaminhoPadraoPutty <> '') then
-  Begin
+  begin
     EdCaminhoPutty.Text := CaminhoPadraoPutty;
     BTPuTTYKey.Visible := true;
     EditPuTTyKey.Visible := true;
@@ -204,26 +230,23 @@ begin
     BtSalvar.Top := 168;
     BttSair.Top := 168;
     Self.ClientHeight := 198;
-  End
+  end
   else if LerCaminhoEXEPPKDoINI <> '' then
-  Begin
+  begin
     EdCaminhoPutty.Text := LerCaminhoEXEPPKDoINI;
 
     if LerCaminhoPPKDoINI <> '' then
-    Begin
-      EditPuTTyKey.Text := LerCaminhoPPKDoINI;
-    End
+      EditPuTTyKey.Text := LerCaminhoPPKDoINI
     else
-    begin
-      EditPuTTyKey.Text:= '';
-    end;
+      EditPuTTyKey.Text := '';
+
     BTPuTTYKey.Visible := true;
     EditPuTTyKey.Visible := true;
     LabelPuttyKey.Visible := true;
     BtSalvar.Top := 168;
     BttSair.Top := 168;
     Self.ClientHeight := 198;
-  End
+  end
   else
   begin
     BTPuTTYKey.Visible := false;
@@ -235,21 +258,117 @@ begin
   end;
 end;
 
+function GetEnvValueCriptografado(const Key: string): string;
+var
+  EnvFile: TStringList;
+  ConteudoDecodificado, Line, CurrentKey, Value: string;
+  I: Integer;
+begin
+  Result := '';
+  if not FileExists('.env.enc') then
+  begin
+    ShowMessage('Arquivo de configuração criptografado não encontrado.');
+    Exit;
+  end;
+
+  EnvFile := TStringList.Create;
+  try
+    // Descriptografa conteúdo
+    ConteudoDecodificado := TNetEncoding.Base64.Decode(TFile.ReadAllText('.env.enc', TEncoding.UTF8));
+    EnvFile.Text := ConteudoDecodificado;
+
+    // Busca pela chave
+    for I := 0 to EnvFile.Count - 1 do
+    begin
+      Line := Trim(EnvFile[I]);
+      if (Line = '') or (Line[1] = '#') then Continue;
+      if Pos('=', Line) > 0 then
+      begin
+        CurrentKey := Trim(Copy(Line, 1, Pos('=', Line) - 1));
+        Value := Trim(Copy(Line, Pos('=', Line) + 1, MaxInt));
+        if SameText(CurrentKey, Key) then
+        begin
+          Result := Value;
+          Exit;
+        end;
+      end;
+    end;
+  finally
+    EnvFile.Free;
+  end;
+end;
+
+procedure CriptografarArquivoEnv(const CaminhoEnv, CaminhoEnvCriptografado: string);
+var
+  ConteudoOriginal, ConteudoCriptografado: string;
+  ArquivoOrigem, ArquivoDestino: TStringList;
+begin
+  if not FileExists(CaminhoEnv) then
+  begin
+    ShowMessage('Arquivo .env não encontrado: ' + CaminhoEnv);
+    Exit;
+  end;
+
+  ArquivoOrigem := TStringList.Create;
+  ArquivoDestino := TStringList.Create;
+  try
+    // Carrega conteúdo original
+    ArquivoOrigem.LoadFromFile(CaminhoEnv, TEncoding.UTF8);
+    ConteudoOriginal := ArquivoOrigem.Text;
+
+    // Criptografa com Base64
+    ConteudoCriptografado := TNetEncoding.Base64.Encode(ConteudoOriginal);
+
+    // Salva criptografado
+    ArquivoDestino.Text := ConteudoCriptografado;
+    ArquivoDestino.SaveToFile(CaminhoEnvCriptografado, TEncoding.UTF8);
+
+    ShowMessage('Arquivo .env criptografado com sucesso!');
+  finally
+    ArquivoOrigem.Free;
+    ArquivoDestino.Free;
+  end;
+end;
+
+procedure TUConfiguracao.CriptografarArquivoEnv2Click(Sender: TObject);
+begin
+   CriptografarArquivoEnv('.env', '.env.enc');
+end;
+
+procedure TUConfiguracao.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  if MenuCripto.Visible = true then
+  begin
+    MenuCripto.Visible := False;
+  end;
+end;
+
 procedure TUConfiguracao.FormCreate(Sender: TObject);
 begin
-  EdCaminhoGitText.Text :=  LerCaminhoGitDoINI;
+  EdCaminhoGitText.Text := LerCaminhoGitDoINI;
   CaminhoPadraoPutty := LerCaminhoEXEPPKDoINI;
 
   if LerCaminhoGitDoINI = '' then
   begin
-    LabelTex.Caption := 'Configuração do caminho da pasta Bin do Git';
+    LabelTex.Caption := 'Configuração do caminho da pasta Bin do Git'
   end
   else
   begin
+    KeyPreview := True;
     LabelTex.Caption := 'Editar caminho da pasta Bin do Git';
   end;
+
   ConfLayout;
 end;
 
+
+procedure TUConfiguracao.FormKeyDown(Sender: TObject; var Key: Word;
+  Shift: TShiftState);
+begin
+  if (Key = Ord('9')) then
+  begin
+    MenuCripto.Visible := not MenuCripto.Visible;
+  end;
+end;
 
 end.

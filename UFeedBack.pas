@@ -6,7 +6,10 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls,
   System.IniFiles, System.DateUtils, Vcl.Buttons,
-  System.Net.FileClient, System.Net.HttpClientComponent, System.NetEncoding, ShellAPI, System.Net.HttpClient, System.Net.URLClient, System.JSON, UClasseValidacao, System.IOUtils;
+  System.Net.FileClient, System.Net.HttpClientComponent, System.NetEncoding, ShellAPI, System.Net.HttpClient, System.Net.URLClient, System.JSON, UClasseValidacao, System.IOUtils,
+  IdMessage, IdBaseComponent, IdComponent, IdTCPConnection, IdTCPClient,
+  IdExplicitTLSClientServerBase, IdMessageClient, IdSMTPBase, IdSMTP,
+  IdIOHandler, IdIOHandlerSocket, IdIOHandlerStack, IdSSL, IdSSLOpenSSL, Registry;
 
 type
   TFFormFeedBack = class(TForm)
@@ -18,10 +21,14 @@ type
     Label1: TLabel;
     Label2: TLabel;
     LblStatus: TLabel;
+    IdSMTP1: TIdSMTP;
+    IdMessage1: TIdMessage;
+    IdSSLIOHandlerSocketOpenSSL1: TIdSSLIOHandlerSocketOpenSSL;
     procedure BtnEnviarClick(Sender: TObject);
     procedure BtnCancelarClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure Logs();
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
   private
     { Private declarations }
   public
@@ -37,34 +44,66 @@ implementation
 
 procedure TFFormFeedBack.BtnCancelarClick(Sender: TObject);
 begin
+  EditNome.Clear;
+  EditEmail.Clear;
+  MemoMensagem.Clear;
+  BtnEnviar.Enabled := True;
+  LblStatus.Caption := 'Pronto para enviar feedback.';
   Close;
+end;
+
+function CriptografarBase64(const Texto: string): string;
+begin
+  Result := System.NetEncoding.TNetEncoding.Base64.Encode(Texto);
 end;
 
 function GetEnvValue(const Key: string): string;
 var
+  ConteudoCriptografado, ConteudoDecodificado: string;
   EnvFile: TStringList;
   I: Integer;
   Line, CurrentKey, Value: string;
+  FullPath: string;
+const
+  ENV_FILENAME = '.env.enc';
 begin
+  FullPath := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + ENV_FILENAME;
   Result := '';
+
+  if not FileExists(FullPath) then
+  begin
+    ShowMessage('O sistema não conseguiu localizar o arquivo de configuração "' + ENV_FILENAME + '".' + sLineBreak +
+                'Verifique se ele está presente na pasta do sistema.' + sLineBreak +
+                'Caso o problema persista, tente reinstalar o sistema.');
+    Exit;
+  end;
+
+  try
+    ConteudoCriptografado := TFile.ReadAllText(FullPath , TEncoding.UTF8);
+    ConteudoDecodificado := TNetEncoding.Base64.Decode(ConteudoCriptografado);
+  except
+    on E: Exception do
+    begin
+      ShowMessage('Erro ao tentar decodificar o arquivo de configuração: ' + E.Message);
+      Exit;
+    end;
+  end;
+
   EnvFile := TStringList.Create;
   try
-    if FileExists('.env') then
+    EnvFile.Text := ConteudoDecodificado;
+    for I := 0 to EnvFile.Count - 1 do
     begin
-      EnvFile.LoadFromFile('.env');
-      for I := 0 to EnvFile.Count - 1 do
+      Line := Trim(EnvFile[I]);
+      if (Line = '') or (Line[1] = '#') then Continue;
+      if Pos('=', Line) > 0 then
       begin
-        Line := Trim(EnvFile[I]);
-        if (Line = '') or (Line[1] = '#') then Continue; // ignora comentários e comentários
-        if Pos('=', Line) > 0 then
+        CurrentKey := Trim(Copy(Line, 1, Pos('=', Line) - 1));
+        Value := Trim(Copy(Line, Pos('=', Line) + 1, MaxInt));
+        if SameText(CurrentKey, Key) then
         begin
-          CurrentKey := Trim(Copy(Line, 1, Pos('=', Line) - 1));
-          Value := Trim(Copy(Line, Pos('=', Line) + 1, MaxInt));
-          if SameText(CurrentKey, Key) then
-          begin
-            Result := Value;
-            Exit;
-          end;
+          Result := Value;
+          Exit;
         end;
       end;
     end;
@@ -73,9 +112,51 @@ begin
   end;
 end;
 
+function GetEnvInt(const Key: string; Default: Integer = 0): Integer;
+var
+  ValorStr: string;
+begin
+  ValorStr := GetEnvValue(Key);
+  Result := StrToIntDef(ValorStr, Default);
+end;
+
+procedure SalvarUltimoEnvio;
+var
+  Reg: TRegistry;
+begin
+  Reg := TRegistry.Create;
+  try
+    Reg.RootKey := HKEY_CURRENT_USER;
+    if Reg.OpenKey('\Software\MeuApp\Feedback', True) then
+      Reg.WriteString('UltimoEnvio', DateTimeToStr(Now));
+  finally
+    Reg.Free;
+  end;
+end;
+
+function PodeEnviarFeedback: Boolean;
+var
+  Reg: TRegistry;
+  UltimoEnvioStr: string;
+  UltimoEnvio: TDateTime;
+begin
+  Result := True;
+  Reg := TRegistry.Create;
+  try
+    Reg.RootKey := HKEY_CURRENT_USER;
+    if Reg.OpenKeyReadOnly('\Software\MeuApp\Feedback') then
+    begin
+      UltimoEnvioStr := Reg.ReadString('UltimoEnvio');
+      if TryStrToDateTime(UltimoEnvioStr, UltimoEnvio) then
+        Result := MinutesBetween(Now, UltimoEnvio) >= 10;     // tempo permitido para próximo envio
+    end;
+  finally
+    Reg.Free;
+  end;
+end;
+
 procedure TFFormFeedBack.BtnEnviarClick(Sender: TObject);
 var
-  HTTPClient: TNetHTTPClient;
   JsonToSend: TStringStream;
   JsonObj: TJSONObject;
   Response: IHTTPResponse;
@@ -83,8 +164,10 @@ var
   UltimoEnvioStr: string;
   UltimoEnvio: TDateTime;
   CaminhoINI: string;
-  ArquivoLogAtual, ApiUrl: string;
+  ArquivoLogAtual, Host, Usuario, EmailDestino, Pass: string;
+  Porta: Integer;
 begin
+  BtnEnviar.Enabled := False;
   // Caminho do arquivo INI
   CaminhoINI := TPath.Combine(GetEnvironmentVariable('APPDATA'), 'FeedbackConfig.ini');
   if ArquivoLogGlobal.Trim = '' then
@@ -104,61 +187,102 @@ begin
     ShowMessage('Campo de mensagem não pode ser vazio.');
   end;
 
-  Ini := TIniFile.Create(CaminhoINI);
-  try
-    UltimoEnvioStr := Ini.ReadString('Feedback', 'UltimoEnvio', '');
-    if (UltimoEnvioStr <> '') and TryStrToDateTime(UltimoEnvioStr, UltimoEnvio) then
-    begin
-      if MinutesBetween(Now, UltimoEnvio) < 30 then
-      begin
-        TFile.AppendAllText(ArquivoLogGlobal, 'Muitas tentativas de envio de feedback. Aguarde um momento.');
-        LblStatus.Caption := 'Muitas tentativas de envio de feedback. Aguarde um momento.';
-        EditNome.Text:= '';
-        EditEmail.Text:= '';
-        MemoMensagem.Text:= '';
-        BtnEnviar.Enabled := False;
-        Exit;
-      end;
-    end;
-  finally
-    Ini.Free;
+  if not PodeEnviarFeedback then
+  begin
+    TFile.AppendAllText(ArquivoLogGlobal, 'Muitas tentativas de envio de feedback. Aguarde um momento.');
+    LblStatus.Caption := 'Muitas tentativas de envio de feedback. Aguarde um momento.';
+    EditNome.Text:= '';
+    EditEmail.Text:= '';
+    MemoMensagem.Text:= '';
+    BtnEnviar.Enabled := False;
+    Exit;
   end;
-
-  // Envio do feedback
-  HTTPClient := TNetHTTPClient.Create(nil);
-  HTTPClient.CustomHeaders['x-api-key'] := 'b2b7a043eda08ecd48f4a65995b34bc2ed34d19cad3b177f2896231c50d7faf9';
 
   try
     JsonObj := TJSONObject.Create;
     try
-      JsonObj.AddPair('nome', EditNome.Text);
-      JsonObj.AddPair('email', EditEmail.Text);
-      JsonObj.AddPair('mensagem', MemoMensagem.Lines.Text.Trim);
-      JsonObj.AddPair('sistema', 'Gerenciador De SubPastas Do Git');
 
       JsonToSend := TStringStream.Create(JsonObj.ToString, TEncoding.UTF8);
       try
-        ApiUrl := GetEnvValue('API_URL');
-        if ApiUrl = '' then
+        Host := GetEnvValue('EMAIL_SERVIDOR');
+        if Host = '' then
         begin
-          ShowMessage('Erro: Variável API_URL não definida no arquivo .env');
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_SERVIDOR não definida no arquivo .env');
           Exit;
         end;
-        Response := HTTPClient.Post(ApiUrl, JsonToSend, nil,
-          [TNameValuePair.Create('Content-Type', 'application/json')]);
+        if GetEnvValue('EMAIL_PORTA') = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_PORTA não definida no arquivo .env');
+          Exit;
+        end;
+        Porta := GetEnvInt('EMAIL_PORTA', 587);
 
-        TFile.AppendAllText(ArquivoLogGlobal, 'Resposta da API: ' + Response.ContentAsString());
-
-        // Atualiza o último envio no INI
-        Ini := TIniFile.Create(CaminhoINI);
-        try
-          Ini.WriteString('Feedback', 'UltimoEnvio', DateTimeToStr(Now));
-        finally
-          Ini.Free;
+        Usuario := GetEnvValue('EMAIL_USUARIO');
+        if Usuario = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_USUARIO não definida no arquivo .env');
+          Exit;
+        end;
+        Pass := GetEnvValue('EMAIL_SENHA');
+        if Pass = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_SENHA não definida no arquivo .env');
+          Exit;
+        end;
+        EmailDestino := GetEnvValue('EMAIL_DESTINO');
+        if EmailDestino = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_DESTINO não definida no arquivo .env');
+          Exit;
         end;
 
-        BtnEnviar.Enabled := False;
-        LblStatus.Caption := 'Feedback enviado com sucesso!';
+
+          // Configuração do servidor SMTP (ajuste conforme seu provedor)
+          IdSMTP1.IOHandler := IdSSLIOHandlerSocketOpenSSL1;
+          IdSMTP1.UseTLS := utUseExplicitTLS;
+          IdSMTP1.Host := Host; // ou outro, como smtp.office365.com
+          IdSMTP1.Port := Porta;
+          IdSMTP1.Username := Usuario;     // e-mail de quem está enviando
+          IdSMTP1.Password := Pass; // cuidado aqui!
+
+          // Montagem do e-mail
+          IdMessage1.Clear;
+          IdMessage1.From.Address := Usuario;
+          IdMessage1.From.Name := 'Sistema de Feedback';
+
+          IdMessage1.Recipients.Clear;
+          IdMessage1.Recipients.Add.Address := EmailDestino;
+          IdMessage1.Subject := 'Novo feedback recebido';
+          IdMessage1.CharSet := 'UTF-8';
+          IdMessage1.ContentType := 'text/plain; charset=UTF-8';
+          IdMessage1.ContentTransferEncoding := '8bit';
+          IdMessage1.Body.Clear;
+          IdMessage1.Body.Add('Você recebeu uma nova mensagem de feedback:');
+          IdMessage1.Body.Add('');
+          IdMessage1.Body.Add('Nome: ' + EditNome.Text);
+          IdMessage1.Body.Add('E-mail de contato: ' + EditEmail.Text);
+          IdMessage1.Body.Add('');
+          IdMessage1.Body.Add('Mensagem:');
+          IdMessage1.Body.Add(MemoMensagem.Text);
+
+          try
+            IdSMTP1.Connect;
+            try
+              IdSMTP1.Send(IdMessage1);
+              LblStatus.Caption := 'Feedback enviado com sucesso!';
+              SalvarUltimoEnvio;
+              EditNome.Clear;
+              EditEmail.Clear;
+              MemoMensagem.Clear;
+            finally
+              IdSMTP1.Disconnect;
+            end;
+          except
+            on E: Exception do
+              ShowMessage('Erro ao enviar o Feedback: ' + E.Message);
+          end;
+          BtnEnviar.Enabled := True;
+
       finally
         JsonToSend.Free;
       end;
@@ -166,7 +290,6 @@ begin
       JsonObj.Free;
     end;
   finally
-    HTTPClient.Free;
   end;
 end;
 
@@ -203,11 +326,20 @@ begin
   UClasseValidacao.ArquivoLogGlobal := ArquivoLogAtual;
 end;
 
+procedure TFFormFeedBack.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  EditNome.Clear;
+  EditEmail.Clear;
+  MemoMensagem.Clear;
+  BtnEnviar.Enabled := True;
+  LblStatus.Caption := 'Pronto para enviar feedback.';
+end;
+
 procedure TFFormFeedBack.FormCreate(Sender: TObject);
 begin
-  EditNome.Text:= '';
-  EditEmail.Text:= '';
-  MemoMensagem.Text:= '';
+  EditNome.Clear;
+  EditEmail.Clear;
+  MemoMensagem.Clear;
   BtnEnviar.Enabled := True;
   LblStatus.Caption := 'Pronto para enviar feedback.';
 end;

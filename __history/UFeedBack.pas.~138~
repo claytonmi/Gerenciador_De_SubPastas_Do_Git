@@ -1,0 +1,348 @@
+unit UFeedBack;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
+  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls,
+  System.IniFiles, System.DateUtils, Vcl.Buttons,
+  System.Net.FileClient, System.Net.HttpClientComponent, System.NetEncoding, ShellAPI, System.Net.HttpClient, System.Net.URLClient, System.JSON, UClasseValidacao, System.IOUtils,
+  IdMessage, IdBaseComponent, IdComponent, IdTCPConnection, IdTCPClient,
+  IdExplicitTLSClientServerBase, IdMessageClient, IdSMTPBase, IdSMTP,
+  IdIOHandler, IdIOHandlerSocket, IdIOHandlerStack, IdSSL, IdSSLOpenSSL, Registry;
+
+type
+  TFFormFeedBack = class(TForm)
+    EditNome: TEdit;
+    EditEmail: TEdit;
+    MemoMensagem: TMemo;
+    BtnEnviar: TBitBtn;
+    BtnCancelar: TBitBtn;
+    Label1: TLabel;
+    Label2: TLabel;
+    LblStatus: TLabel;
+    IdSMTP1: TIdSMTP;
+    IdMessage1: TIdMessage;
+    IdSSLIOHandlerSocketOpenSSL1: TIdSSLIOHandlerSocketOpenSSL;
+    procedure BtnEnviarClick(Sender: TObject);
+    procedure BtnCancelarClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure Logs();
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+var
+  FFormFeedBack: TFFormFeedBack;
+
+implementation
+
+{$R *.dfm}
+
+procedure TFFormFeedBack.BtnCancelarClick(Sender: TObject);
+begin
+  EditNome.Clear;
+  EditEmail.Clear;
+  MemoMensagem.Clear;
+  BtnEnviar.Enabled := True;
+  LblStatus.Caption := 'Pronto para enviar feedback.';
+  Close;
+end;
+
+function CriptografarBase64(const Texto: string): string;
+begin
+  Result := System.NetEncoding.TNetEncoding.Base64.Encode(Texto);
+end;
+
+function GetEnvValue(const Key: string): string;
+var
+  ConteudoCriptografado, ConteudoDecodificado: string;
+  EnvFile: TStringList;
+  I: Integer;
+  Line, CurrentKey, Value: string;
+  FullPath: string;
+const
+  ENV_FILENAME = '.env.enc';
+begin
+  FullPath := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + ENV_FILENAME;
+  Result := '';
+
+  if not FileExists(FullPath) then
+  begin
+    ShowMessage('O sistema não conseguiu localizar o arquivo de configuração "' + ENV_FILENAME + '".' + sLineBreak +
+                'Verifique se ele está presente na pasta do sistema.' + sLineBreak +
+                'Caso o problema persista, tente reinstalar o sistema.');
+    Exit;
+  end;
+
+  try
+    ConteudoCriptografado := TFile.ReadAllText(FullPath , TEncoding.UTF8);
+    ConteudoDecodificado := TNetEncoding.Base64.Decode(ConteudoCriptografado);
+  except
+    on E: Exception do
+    begin
+      ShowMessage('Erro ao tentar decodificar o arquivo de configuração: ' + E.Message);
+      Exit;
+    end;
+  end;
+
+  EnvFile := TStringList.Create;
+  try
+    EnvFile.Text := ConteudoDecodificado;
+    for I := 0 to EnvFile.Count - 1 do
+    begin
+      Line := Trim(EnvFile[I]);
+      if (Line = '') or (Line[1] = '#') then Continue;
+      if Pos('=', Line) > 0 then
+      begin
+        CurrentKey := Trim(Copy(Line, 1, Pos('=', Line) - 1));
+        Value := Trim(Copy(Line, Pos('=', Line) + 1, MaxInt));
+        if SameText(CurrentKey, Key) then
+        begin
+          Result := Value;
+          Exit;
+        end;
+      end;
+    end;
+  finally
+    EnvFile.Free;
+  end;
+end;
+
+function GetEnvInt(const Key: string; Default: Integer = 0): Integer;
+var
+  ValorStr: string;
+begin
+  ValorStr := GetEnvValue(Key);
+  Result := StrToIntDef(ValorStr, Default);
+end;
+
+procedure SalvarUltimoEnvio;
+var
+  Reg: TRegistry;
+begin
+  Reg := TRegistry.Create;
+  try
+    Reg.RootKey := HKEY_CURRENT_USER;
+    if Reg.OpenKey('\Software\MeuApp\Feedback', True) then
+      Reg.WriteString('UltimoEnvio', DateTimeToStr(Now));
+  finally
+    Reg.Free;
+  end;
+end;
+
+function PodeEnviarFeedback: Boolean;
+var
+  Reg: TRegistry;
+  UltimoEnvioStr: string;
+  UltimoEnvio: TDateTime;
+begin
+  Result := True;
+  Reg := TRegistry.Create;
+  try
+    Reg.RootKey := HKEY_CURRENT_USER;
+    if Reg.OpenKeyReadOnly('\Software\MeuApp\Feedback') then
+    begin
+      UltimoEnvioStr := Reg.ReadString('UltimoEnvio');
+      if TryStrToDateTime(UltimoEnvioStr, UltimoEnvio) then
+        Result := MinutesBetween(Now, UltimoEnvio) >= 0;     // tempo permitido para próximo envio
+    end;
+  finally
+    Reg.Free;
+  end;
+end;
+
+procedure TFFormFeedBack.BtnEnviarClick(Sender: TObject);
+var
+  JsonToSend: TStringStream;
+  JsonObj: TJSONObject;
+  Response: IHTTPResponse;
+  Ini: TIniFile;
+  UltimoEnvioStr: string;
+  UltimoEnvio: TDateTime;
+  CaminhoINI: string;
+  ArquivoLogAtual, Host, Usuario, EmailDestino, Pass: string;
+  Porta: Integer;
+begin
+  BtnEnviar.Enabled := False;
+  // Caminho do arquivo INI
+  CaminhoINI := TPath.Combine(GetEnvironmentVariable('APPDATA'), 'FeedbackConfig.ini');
+  if ArquivoLogGlobal.Trim = '' then
+  begin
+    logs;
+  end;
+  if EditNome.text = ''  then
+  begin
+    ShowMessage('Campo nome deve ser preenchido.');
+  end;
+  if EditEmail.text = ''  then
+  begin
+    ShowMessage('Campo Email deve ser preenchido.');
+  end;
+  if MemoMensagem.text = ''  then
+  begin
+    ShowMessage('Campo de mensagem não pode ser vazio.');
+  end;
+
+  if not PodeEnviarFeedback then
+  begin
+    TFile.AppendAllText(ArquivoLogGlobal, 'Muitas tentativas de envio de feedback. Aguarde um momento.');
+    LblStatus.Caption := 'Muitas tentativas de envio de feedback. Aguarde um momento.';
+    EditNome.Text:= '';
+    EditEmail.Text:= '';
+    MemoMensagem.Text:= '';
+    BtnEnviar.Enabled := False;
+    Exit;
+  end;
+
+  try
+    JsonObj := TJSONObject.Create;
+    try
+
+      JsonToSend := TStringStream.Create(JsonObj.ToString, TEncoding.UTF8);
+      try
+        Host := GetEnvValue('EMAIL_SERVIDOR');
+        if Host = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_SERVIDOR não definida no arquivo .env');
+          Exit;
+        end;
+        if GetEnvValue('EMAIL_PORTA') = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_PORTA não definida no arquivo .env');
+          Exit;
+        end;
+        Porta := GetEnvInt('EMAIL_PORTA', 587);
+
+        Usuario := GetEnvValue('EMAIL_USUARIO');
+        if Usuario = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_USUARIO não definida no arquivo .env');
+          Exit;
+        end;
+        Pass := GetEnvValue('EMAIL_SENHA');
+        if Pass = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_SENHA não definida no arquivo .env');
+          Exit;
+        end;
+        EmailDestino := GetEnvValue('EMAIL_DESTINO');
+        if EmailDestino = '' then
+        begin
+          TFile.AppendAllText(ArquivoLogGlobal, 'Erro: Variável EMAIL_DESTINO não definida no arquivo .env');
+          Exit;
+        end;
+
+
+          // Configuração do servidor SMTP (ajuste conforme seu provedor)
+          IdSMTP1.IOHandler := IdSSLIOHandlerSocketOpenSSL1;
+          IdSMTP1.UseTLS := utUseExplicitTLS;
+          IdSMTP1.Host := Host; // ou outro, como smtp.office365.com
+          IdSMTP1.Port := Porta;
+          IdSMTP1.Username := Usuario;     // e-mail de quem está enviando
+          IdSMTP1.Password := Pass; // cuidado aqui!
+
+          // Montagem do e-mail
+          IdMessage1.Clear;
+          IdMessage1.From.Address := Usuario;
+          IdMessage1.From.Name := 'Sistema de Feedback';
+
+          IdMessage1.Recipients.Clear;
+          IdMessage1.Recipients.Add.Address := EmailDestino;
+          IdMessage1.Subject := 'Novo feedback recebido';
+          IdMessage1.CharSet := 'UTF-8';
+          IdMessage1.ContentType := 'text/plain; charset=UTF-8';
+          IdMessage1.ContentTransferEncoding := '8bit';
+          IdMessage1.Body.Clear;
+          IdMessage1.Body.Add('Você recebeu uma nova mensagem de feedback:');
+          IdMessage1.Body.Add('');
+          IdMessage1.Body.Add('Nome: ' + EditNome.Text);
+          IdMessage1.Body.Add('E-mail de contato: ' + EditEmail.Text);
+          IdMessage1.Body.Add('');
+          IdMessage1.Body.Add('Mensagem:');
+          IdMessage1.Body.Add(MemoMensagem.Text);
+
+          try
+            IdSMTP1.Connect;
+            try
+              IdSMTP1.Send(IdMessage1);
+              LblStatus.Caption := 'Feedback enviado com sucesso!';
+              SalvarUltimoEnvio;
+              EditNome.Clear;
+              EditEmail.Clear;
+              MemoMensagem.Clear;
+            finally
+              IdSMTP1.Disconnect;
+            end;
+          except
+            on E: Exception do
+              ShowMessage('Erro ao enviar o Feedback: ' + E.Message);
+          end;
+          BtnEnviar.Enabled := True;
+
+      finally
+        JsonToSend.Free;
+      end;
+    finally
+      JsonObj.Free;
+    end;
+  finally
+  end;
+end;
+
+procedure TFFormFeedBack.Logs();
+var
+  LogsDir, DataHoje, ArquivoLogAtual, FilePath: string;
+  InfoArq: TSearchRec;
+  Ret: Integer;
+begin
+  LogsDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'Logs');
+  if not DirectoryExists(LogsDir) then
+    ForceDirectories(LogsDir);
+
+  DataHoje := FormatDateTime('dd-mm-yyyy', Now);
+
+  Ret := FindFirst(PChar(TPath.Combine(LogsDir, 'cmd_git_*.log')), faAnyFile, InfoArq);
+  if Ret = 0 then
+  begin
+    repeat
+      if Pos(DataHoje, InfoArq.Name) = 0 then
+      begin
+        FilePath := TPath.Combine(LogsDir, InfoArq.Name);
+        if FileExists(FilePath) then
+          DeleteFile(FilePath);
+      end;
+      Ret := FindNext(InfoArq);
+    until Ret <> 0;
+    FindClose(InfoArq);
+  end;
+
+  ArquivoLogAtual := Format('cmd_git_%s.log', [FormatDateTime('dd-mm-yyyy_hh-nn-ss', Now)]);
+  ArquivoLogAtual := TPath.Combine(LogsDir, ArquivoLogAtual);
+
+  UClasseValidacao.ArquivoLogGlobal := ArquivoLogAtual;
+end;
+
+procedure TFFormFeedBack.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  EditNome.Clear;
+  EditEmail.Clear;
+  MemoMensagem.Clear;
+  BtnEnviar.Enabled := True;
+  LblStatus.Caption := 'Pronto para enviar feedback.';
+end;
+
+procedure TFFormFeedBack.FormCreate(Sender: TObject);
+begin
+  EditNome.Clear;
+  EditEmail.Clear;
+  MemoMensagem.Clear;
+  BtnEnviar.Enabled := True;
+  LblStatus.Caption := 'Pronto para enviar feedback.';
+end;
+
+end.
+

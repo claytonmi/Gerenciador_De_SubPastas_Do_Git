@@ -24,4 +24,13 @@
     <Transaction>2025/05/26 18:09:52.000.626,E:\Projetos Delphi\GerenciadorDoGit2\UFeedBack.pas=E:\Projetos Delphi\GerenciadorDoGit2\Unit1.pas</Transaction>
     <Transaction>2025/05/26 20:59:57.000.185,=E:\Projetos Delphi\GerenciadorDoGit2\Target1.targets</Transaction>
   </Transactions>
+	<ProjectSortOrder AutoSort="0" SortType="0">
+    <File Path="TFormConfiguracaoGerenciador.pas"/>
+    <File Path="TFormConfiguracaoGerenciador.dfm"/>
+    <File Path="UClasseValidacao.pas"/>
+    <File Path="UFeedBack.pas"/>
+    <File Path="UFeedBack.dfm"/>
+    <File Path="UGerenciadorDePastasPrincipal.pas"/>
+    <File Path="UGerenciadorDePastasPrincipal.dfm"/>
+  </ProjectSortOrder>
 </BorlandProject>

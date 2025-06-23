@@ -2128,6 +2128,7 @@ object FFormFeedBack: TFFormFeedBack
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF}
   Position = poScreenCenter
+  OnClose = FormClose
   OnCreate = FormCreate
   TextHeight = 15
   object Label1: TLabel
@@ -2171,9 +2172,9 @@ object FFormFeedBack: TFFormFeedBack
   end
   object MemoMensagem: TMemo
     Left = 16
-    Top = 104
+    Top = 93
     Width = 473
-    Height = 265
+    Height = 276
     MaxLength = 1000
     TabOrder = 2
   end
@@ -2194,5 +2195,34 @@ object FFormFeedBack: TFFormFeedBack
     Caption = 'Cancelar'
     TabOrder = 4
     OnClick = BtnCancelarClick
+  end
+  object IdSMTP1: TIdSMTP
+    SASLMechanisms = <>
+    Left = 432
+    Top = 272
+  end
+  object IdMessage1: TIdMessage
+    AttachmentEncoding = 'UUE'
+    BccList = <>
+    CCList = <>
+    Encoding = meDefault
+    FromList = <
+      item
+      end>
+    Recipients = <>
+    ReplyTo = <>
+    ConvertPreamble = True
+    Left = 432
+    Top = 208
+  end
+  object IdSSLIOHandlerSocketOpenSSL1: TIdSSLIOHandlerSocketOpenSSL
+    MaxLineAction = maException
+    Port = 0
+    DefaultPort = 0
+    SSLOptions.Mode = sslmUnassigned
+    SSLOptions.VerifyMode = []
+    SSLOptions.VerifyDepth = 0
+    Left = 424
+    Top = 328
   end
 end
