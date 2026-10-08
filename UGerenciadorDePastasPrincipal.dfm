@@ -2130,6 +2130,7 @@ object FGerenciadorDePastas: TFGerenciadorDePastas
   Menu = MainMenuAjuda
   Position = poScreenCenter
   OnCreate = FormCreate
+  OnShow = FormShow
   TextHeight = 15
   object Panel1: TPanel
     Left = 0

@@ -1,4 +1,4 @@
-﻿unit UClasseValidacao;
+unit UClasseValidacao;
 
 interface
 
@@ -14,21 +14,25 @@ procedure CriarINIComCaminhoPadrao;
 function LerCaminhoGitDoINI: string;
 function CaminhoGitEhValido(const CaminhoGit: string): Boolean;
 procedure ValidarConfiguracaoGit;
+function NovaConfiguracaoGit: Boolean;
 procedure ObterBranchesUnicas(const CaminhoGitBin: string; const Repositorios: TStrings; const ListaBranches: TStrings);
 function ExecutarComandoGit(const Comando, Pasta: string): string;
-function BranchAtual(const Pasta: string): string;
-function BranchExiste(const Pasta, Branch: string): Boolean;
-function HaAlteracoesPendentes(const Pasta: string): Boolean;
-function NovaConfiguracaoGit: Boolean;
-
-
+function ExecutarComandoGitSSH(const Comando, Pasta: string): string;
+function ExecutarComandoGitSSHComEnv(const Comando, Pasta: string): string;
 type
   TLogCallback = procedure(const Msg: string) of object;
+  TGitExecutor = function(const Comando, Pasta: string): string;
+function BranchAtual(const Pasta: string; Exec: TGitExecutor): string;
+function BranchExiste(const Pasta, Branch: string; Exec: TGitExecutor): Boolean;
+function BranchRemotaExiste(const Pasta, Branch: string; Exec: TGitExecutor): Boolean;
+function HaAlteracoesPendentes(const Pasta: string; Exec: TGitExecutor): Boolean;
 
 
 var
    OnLogMensagem: TLogCallback;
    ArquivoLogGlobal: string = '';
+   SSHAuthSock: string;
+   CodigoSaidaUltimoGit: Cardinal;
 
 
 implementation
@@ -40,6 +44,13 @@ function CaminhoDoINI: string;
 begin
   Result := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'ConfigGit.ini';
 end;
+
+
+function GetSSHAuthSock: string;
+begin
+  Result := GetEnvironmentVariable('SSH_AUTH_SOCK');
+end;
+
 
 function NovaConfiguracaoGit: Boolean;
 var
@@ -122,6 +133,18 @@ begin
   Result := DirectoryExists(CaminhoGit);
 end;
 
+function LerCaminhoTortoiseGitDoINI: string;
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(ExtractFilePath(ParamStr(0)) + 'ConfigGit.ini');
+  try
+    Result := Ini.ReadString('TORTOISEGIT', 'CaminhoBin', '');
+  finally
+    Ini.Free;
+  end;
+end;
+
 function PuttyNoCaminhoPadraoExiste: Boolean;
 const
   CaminhoPuttyPadrao = 'C:\Program Files\PuTTY';
@@ -132,7 +155,7 @@ begin
     TFormConfiguracaoGerenciador.CaminhoPadraoPutty := CaminhoPuttyPadrao;
     if LerCaminhoExePuTTYDoINI <> '' then
     begin
-      TFile.AppendAllText(ArquivoLogGlobal,'PuTTY foi detectado no caminho padrão. Caso use configurações de segurança, configure-as no Gerenciador de Pastas.');
+      TFile.AppendAllText(ArquivoLogGlobal,'PuTTY foi detectado no caminho padr�o. Caso use configura��es de seguran�a, configure-as no Gerenciador de Pastas.');
     end;
   End;
 end;
@@ -162,7 +185,9 @@ end;
 
 procedure ValidarConfiguracaoGit;
 var
-  CaminhoGit, CaminhoPuttyExe, CaminhoPuttyPPK, ComandoPageant, Parametros: string;
+  CaminhoGit, CaminhoPuttyExe, CaminhoPuttyPPK, PlinkExe, ComandoPageant,
+    Parametros: string;
+  ShellResult: HINST;
 begin
   if not INIExiste then
   begin
@@ -170,7 +195,7 @@ begin
       CriarINIComCaminhoPadrao
     else
     begin
-      ShowMessage('Git não foi encontrado no caminho padrão ou não está instalado. Selecione o caminho da pasta bin do Git para continuar.');
+      ShowMessage('Git nao foi encontrado no caminho padrao ou nao esta instalado. Selecione a pasta bin do Git para continuar.');
       if not TUConfiguracao.Execute then
         Halt;
       Exit;
@@ -178,51 +203,45 @@ begin
   end;
 
   CaminhoGit := LerCaminhoGitDoINI;
-
   if not CaminhoGitEhValido(CaminhoGit) then
   begin
-    ShowMessage('O caminho do Git no arquivo de configuração está incorreto.');
+    ShowMessage('O caminho do Git no arquivo de configuracao esta incorreto.');
     if not TUConfiguracao.Execute then
       Halt;
-  end;
-
-  if LerCaminhoPuTTYDoINI = '' then
-  begin
-    PuttyNoCaminhoPadraoExiste;
-  end;
-
-  // Verificação adicional para PuTTY
-  CaminhoPuttyExe := LerCaminhoExePuTTYDoINI;
-  CaminhoPuttyPPK := LerCaminhoPuTTYDoINI;
-
-  if (Trim(CaminhoPuttyExe) <> '') and FileExists(CaminhoPuttyExe) and
-     (Trim(CaminhoPuttyPPK) <> '') and DirectoryExists(CaminhoPuttyPPK) then
-  begin
-    if ExtractFileExt(CaminhoPuttyExe).ToLower <> '.ppk' then
-    begin
-      TFile.AppendAllText(ArquivoLogGlobal,'O arquivo da chave PuTTY não possui a extensão .ppk.');
+    CaminhoGit := LerCaminhoGitDoINI;
+    if not CaminhoGitEhValido(CaminhoGit) then
       Exit;
-    end;
-
-    if not PageantEstaRodando then
-    begin
-      TFile.AppendAllText(ArquivoLogGlobal,'Será necessário carregar a chave PuTTY agora. Se ela estiver protegida, será solicitada a senha.');
-      OnLogMensagem('Será necessário carregar a chave PuTTY agora.'+ sLineBreak +' Se ela estiver protegida, será solicitada a senha.');
-      ShellExecute(0, 'open',
-             PChar(IncludeTrailingPathDelimiter(CaminhoPuttyPPK) + 'pageant.exe'),
-             PChar('"' + CaminhoPuttyExe + '"'),
-             nil, SW_SHOWNORMAL);
-    end
-    else
-    begin
-    TFile.AppendAllText(ArquivoLogGlobal, 'O Pageant já está em execução.Para que a autenticação funcione corretamente, verifique se a chave (.ppk) já foi carregada no Pageant.'+
-  'Se não estiver, localize o ícone do Pageant na bandeja do sistema (perto do relógio), clique com o botão direito e escolha "Add Key..." para carregar sua chave.'+
-  'Caso a chave esteja protegida por senha, será solicitado que você a digite no momento do carregamento.');
-      OnLogMensagem('O Pageant já está em execução. Acesso log para mais informções');
-    end;
   end;
-end;
 
+  CaminhoPuttyExe := Trim(LerCaminhoExePuTTYDoINI);
+  CaminhoPuttyPPK := Trim(LerCaminhoPuTTYDoINI);
+
+  // Sem configuracao PuTTY, o Git usa seus helpers e autenticacao existentes.
+  if (CaminhoPuttyExe = '') and (CaminhoPuttyPPK = '') then
+    Exit;
+
+  PlinkExe := TPath.Combine(CaminhoPuttyExe, 'plink.exe');
+  ComandoPageant := TPath.Combine(CaminhoPuttyExe, 'pageant.exe');
+  if (CaminhoPuttyExe = '') or (CaminhoPuttyPPK = '') or
+     not DirectoryExists(CaminhoPuttyExe) or not FileExists(PlinkExe) or
+     not FileExists(ComandoPageant) or not FileExists(CaminhoPuttyPPK) or
+     not SameText(ExtractFileExt(CaminhoPuttyPPK), '.ppk') then
+  begin
+    if Assigned(OnLogMensagem) then
+      OnLogMensagem('Configuracao PuTTY incompleta/invalida. Corrija ou desative PuTTY nas configuracoes; o programa nao vai trocar silenciosamente para outro metodo.');
+    Exit;
+  end;
+
+  Parametros := '"' + CaminhoPuttyPPK + '"';
+  ShellResult := ShellExecute(0, 'open', PChar(ComandoPageant), PChar(Parametros), nil, SW_SHOWNORMAL);
+  if NativeInt(ShellResult) <= 32 then
+  begin
+    if Assigned(OnLogMensagem) then
+      OnLogMensagem('Nao foi possivel iniciar Pageant para carregar a chave PPK. Codigo: ' + IntToStr(NativeInt(ShellResult)));
+  end
+  else if Assigned(OnLogMensagem) then
+    OnLogMensagem('Pageant foi chamado para carregar a chave PPK configurada. Se a chave tiver senha, desbloqueie-a no Pageant antes de executar.');
+end;
 procedure ObterBranchesUnicas(const CaminhoGitBin: string; const Repositorios: TStrings; const ListaBranches: TStrings);
 var
   PastaRepo, Cmd, Linha, LinhaTratada, NomeBranch: string;
@@ -246,6 +265,7 @@ begin
     for I := 0 to Repositorios.Count - 1 do
     begin
       PastaRepo := Repositorios[I];
+      Saida.Clear;
 
       Cmd := Format('"%sgit.exe" -C "%s" for-each-ref --format="%%(refname)" refs/heads refs/remotes', [CaminhoGitBin, PastaRepo]);
       CmdLineW := '"cmd.exe" /c "' + Cmd + '"';
@@ -287,11 +307,11 @@ begin
             if (NomeBranch <> '') and (Locais.IndexOf(NomeBranch) = -1) then
               Locais.Add(NomeBranch);
           end
-          else if LinhaTratada.StartsWith('refs/remotes/origin/') then
+          else if LinhaTratada.StartsWith('refs/remotes/') and (not LinhaTratada.EndsWith('/HEAD')) then
           begin
-            NomeBranch := Copy(LinhaTratada, Length('refs/remotes/origin/') + 1, MaxInt);
-            if (NomeBranch <> '') and (Remotas.IndexOf('remotes/origin/' + NomeBranch) = -1) then
-              Remotas.Add('remotes/origin/' + NomeBranch);
+            NomeBranch := Copy(LinhaTratada, Length('refs/remotes/') + 1, MaxInt);
+            if (NomeBranch <> '') and (Remotas.IndexOf('remotes/' + NomeBranch) = -1) then
+              Remotas.Add('remotes/' + NomeBranch);
           end;
         end;
 
@@ -307,7 +327,9 @@ begin
     ListaBranches.AddStrings(Locais);
     ListaBranches.AddStrings(Remotas);
 
-    TFile.AppendAllText(ArquivoLogGlobal, CmdLineW + sLineBreak);
+    if (Trim(ArquivoLogGlobal) <> '') then
+      TFile.AppendAllText(ArquivoLogGlobal, CmdLineW + sLineBreak);
+
   finally
     Locais.Free;
     Remotas.Free;
@@ -315,89 +337,384 @@ begin
   end;
 end;
 
-function ExecutarComandoGit(const Comando, Pasta: string): string;
-var
-  ArquivoSaida, CaminhoGitCompleto, LinhaComando: string;
-  SI: TStartupInfo;
-  PI: TProcessInformation;
-  ExitCode: DWORD;
-  CmdBat: string;
+function PathToBash(const WindowsPath: string): string;
 begin
-  Result := '';
-  ArquivoSaida := TPath.Combine(TPath.GetTempPath, 'saida_git.txt');
-  CaminhoGitCompleto := LerCaminhoGitDoIni(); // deve retornar caminho completo para git.exe
+  // Exemplo: C:\Projetos\Teste ? /c/Projetos/Teste
+  Result := StringReplace(WindowsPath, '\', '/', [rfReplaceAll]);
+  if Length(Result) > 2 then
+    if Result[2] = ':' then
+      Result := '/' + LowerCase(Result[1]) + Copy(Result, 3, MaxInt);
+end;
 
-  if not DirectoryExists(CaminhoGitCompleto) then
+function QuoteCommandLineArgument(const Value: string): string;
+var
+  I, BackslashCount: Integer;
+  C: Char;
+begin
+  Result := '"';
+  BackslashCount := 0;
+  for I := 1 to Length(Value) do
   begin
-    OnLogMensagem('Erro: Caminho do git inválido: ' + CaminhoGitCompleto);
-    Result := 'Erro: Caminho do Git inválido: ' + CaminhoGitCompleto;
+    C := Value[I];
+    if C = #92 then
+      Inc(BackslashCount)
+    else
+    begin
+      if C = '"' then
+        Result := Result + StringOfChar(#92, BackslashCount * 2 + 1) + '"'
+      else
+        Result := Result + StringOfChar(#92, BackslashCount) + C;
+      BackslashCount := 0;
+    end;
+  end;
+  Result := Result + StringOfChar(#92, BackslashCount * 2) + '"';
+end;
+
+function GitCommandPermitido(const Comando: string): Boolean;
+var
+  Args, NomeBranch, RefRemota: string;
+  Separador: Integer;
+begin
+  Result := SameText(Trim(Comando), 'status --porcelain') or
+            SameText(Trim(Comando), 'rev-parse --abbrev-ref HEAD') or
+            SameText(Trim(Comando), 'branch --list --format="%(refname:short)"') or
+            SameText(Trim(Comando), 'for-each-ref --format="%(refname:short)" refs/remotes') or
+            SameText(Trim(Comando), 'pull --ff-only');
+  if Result then
+    Exit;
+
+  Args := Trim(Comando);
+  if StartsText('pull --ff-only ', Args) then
+  begin
+    Args := Trim(Copy(Args, Length('pull --ff-only ') + 1, MaxInt));
+    Separador := Pos(' ', Args);
+    if Separador <= 1 then
+      Exit(False);
+    NomeBranch := Copy(Args, 1, Separador - 1); // nome do remote
+    RefRemota := Copy(Args, Separador + 1, MaxInt);
+    Result := (NomeBranch <> '') and (RefRemota <> '') and
+              (Pos(' ', RefRemota) = 0) and (Pos('"', Args) = 0) and
+              (NomeBranch[1] <> '-') and (RefRemota[1] <> '-');
     Exit;
   end;
 
-  LinhaComando := Format('"%sgit.exe" -C "%s" %s > "%s" 2>&1',[CaminhoGitCompleto, Pasta, Comando, ArquivoSaida]);
-  CmdBat := 'cmd.exe /c ' + '"' + LinhaComando + '"';
-  ZeroMemory(@SI, SizeOf(SI));
-  ZeroMemory(@PI, SizeOf(PI));
-  SI.cb := SizeOf(SI);
-  SI.dwFlags := STARTF_USESHOWWINDOW;
-  SI.wShowWindow := SW_HIDE;
-
-  if CreateProcess(nil, PChar('cmd.exe /c ' + '"' + LinhaComando + '"'), nil, nil, False,
-    CREATE_NO_WINDOW, nil, nil, SI, PI) then
+  if StartsText('checkout ', Args) and
+     (not StartsText('checkout --', Args)) then
   begin
-    TFile.AppendAllText(ArquivoLogGlobal, 'Comando final: ' + CmdBat + sLineBreak);
-
-    // Espera até o processo terminar
-    WaitForSingleObject(PI.hProcess, INFINITE);
-    GetExitCodeProcess(PI.hProcess, ExitCode);
-    CloseHandle(PI.hProcess);
-    CloseHandle(PI.hThread);
-
-    // Lê o conteúdo do arquivo de saída
-    if TFile.Exists(ArquivoSaida) then
-      Result := TFile.ReadAllText(ArquivoSaida)
-    else
-      Result := 'Erro: arquivo de saída não encontrado.';
-  end
-  else
-    Result := 'Erro ao executar o comando do Git.';
-
-  TFile.AppendAllText(ArquivoLogGlobal, Format('[%s] CMD: git %s -C "%s" → %s' + sLineBreak,[DateTimeToStr(Now), Comando, Pasta, Result]));
-end;
-
-  function BranchAtual(const Pasta: string): string;
-  begin
-    Result := Trim(ExecutarComandoGit('rev-parse --abbrev-ref HEAD', Pasta));
+    NomeBranch := Trim(Copy(Args, Length('checkout ') + 1, MaxInt));
+    Result := (NomeBranch <> '') and (Pos(' ', NomeBranch) = 0) and
+              (NomeBranch[1] <> '-') and (Pos('"', NomeBranch) = 0);
+    Exit;
   end;
 
-function BranchExiste(const Pasta, Branch: string): Boolean;
+  Result := False;
+  if not StartsText('checkout --track -b ', Args) then
+    Exit;
+  Args := Trim(Copy(Args, Length('checkout --track -b ') + 1, MaxInt));
+  Separador := Pos(' ', Args);
+  if Separador <= 1 then
+    Exit;
+  NomeBranch := Copy(Args, 1, Separador - 1);
+  RefRemota := Copy(Args, Separador + 1, MaxInt);
+  Result := (NomeBranch <> '') and (RefRemota <> '') and
+            (Pos(' ', RefRemota) = 0) and (Pos('"', Args) = 0) and
+            (NomeBranch[1] <> '-') and (RefRemota[1] <> '-') and
+            (Pos('/', RefRemota) > 1) and
+            (RefRemota[Length(RefRemota)] <> '/');
+end;
+function ExecutarComandoGit(const Comando, Pasta: string): string;
+const
+  TEMPO_MAXIMO_GIT_MS = 30 * 60 * 1000;
+var
+  GitExe, CommandLine, PuttyDir, PuttyKey, PlinkExe, SSHCommand,
+    TextoSaida, PromptAnterior: string;
+  StartupInfo: TStartupInfo;
+  ProcessInfo: TProcessInformation;
+  SecurityAttr: TSecurityAttributes;
+  ReadPipe, WritePipe, NulHandle: THandle;
+  Buffer: array[0..4095] of Byte;
+  BytesRead, BytesDisponiveis, BytesParaLer, ExitCode, InicioTick: DWORD;
+  OutputStream: TMemoryStream;
+  OutputBytes: TBytes;
+  ProcessoCriado, EstourouTempo: Boolean;
+begin
+  Result := '';
+  CodigoSaidaUltimoGit := Cardinal(-1);
+  if not GitCommandPermitido(Comando) then
+  begin
+    CodigoSaidaUltimoGit := 1;
+    Result := 'Comando Git bloqueado: somente consulta, checkout local/remoto e pull --ff-only.';
+    Exit;
+  end;
+
+  GitExe := IncludeTrailingPathDelimiter(LerCaminhoGitDoIni) + 'git.exe';
+  if not FileExists(GitExe) then
+  begin
+    CodigoSaidaUltimoGit := 1;
+    Result := 'Erro: git.exe nao foi encontrado em ' + GitExe;
+    Exit;
+  end;
+  if not DirectoryExists(Pasta) then
+  begin
+    CodigoSaidaUltimoGit := 1;
+    Result := 'Erro: pasta do repositorio nao existe: ' + Pasta;
+    Exit;
+  end;
+
+  CommandLine := QuoteCommandLineArgument(GitExe);
+  PuttyDir := Trim(LerCaminhoExePuTTYDoINI);
+  PuttyKey := Trim(LerCaminhoPuTTYDoINI);
+  if (PuttyDir <> '') or (PuttyKey <> '') then
+  begin
+    PlinkExe := TPath.Combine(PuttyDir, 'plink.exe');
+    if (PuttyDir = '') or (PuttyKey = '') or not DirectoryExists(PuttyDir) or
+       not FileExists(PlinkExe) or
+       not FileExists(TPath.Combine(PuttyDir, 'pageant.exe')) or
+       not FileExists(PuttyKey) or
+       not SameText(ExtractFileExt(PuttyKey), '.ppk') then
+    begin
+      CodigoSaidaUltimoGit := 1;
+      Result := 'Configuracao PuTTY incompleta ou invalida. Corrija ou desative PuTTY nas configuracoes.';
+      Exit;
+    end;
+
+    SSHCommand := '"' + PlinkExe + '" -i "' + PuttyKey + '" -batch';
+    CommandLine := CommandLine + ' -c ' +
+      QuoteCommandLineArgument('core.sshCommand=' + SSHCommand);
+  end;
+  // Preserva credential helpers, SSH, GitHub CLI configurado como helper e HTTPS.
+  CommandLine := CommandLine + ' -C ' + QuoteCommandLineArgument(Pasta) + ' ' + Comando;
+
+  ReadPipe := 0;
+  WritePipe := 0;
+  NulHandle := INVALID_HANDLE_VALUE;
+  ProcessoCriado := False;
+  EstourouTempo := False;
+  ZeroMemory(@SecurityAttr, SizeOf(SecurityAttr));
+  SecurityAttr.nLength := SizeOf(SecurityAttr);
+  SecurityAttr.bInheritHandle := True;
+  if not CreatePipe(ReadPipe, WritePipe, @SecurityAttr, 0) then
+  begin
+    CodigoSaidaUltimoGit := GetLastError;
+    Result := 'Erro ao criar canal de saida do Git: ' + SysErrorMessage(CodigoSaidaUltimoGit);
+    Exit;
+  end;
+
+  try
+    SetHandleInformation(ReadPipe, HANDLE_FLAG_INHERIT, 0);
+    NulHandle := CreateFile(PChar('NUL'), GENERIC_READ, FILE_SHARE_READ or FILE_SHARE_WRITE,
+      @SecurityAttr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    if NulHandle = INVALID_HANDLE_VALUE then
+    begin
+      CodigoSaidaUltimoGit := GetLastError;
+      Result := 'Erro ao preparar entrada nao interativa do Git: ' + SysErrorMessage(CodigoSaidaUltimoGit);
+      Exit;
+    end;
+
+    ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
+    StartupInfo.cb := SizeOf(StartupInfo);
+    StartupInfo.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
+    StartupInfo.wShowWindow := SW_HIDE;
+    StartupInfo.hStdOutput := WritePipe;
+    StartupInfo.hStdError := WritePipe;
+    StartupInfo.hStdInput := NulHandle;
+
+    ZeroMemory(@ProcessInfo, SizeOf(ProcessInfo));
+    UniqueString(CommandLine);
+    PromptAnterior := GetEnvironmentVariable('GIT_TERMINAL_PROMPT');
+    SetEnvironmentVariable(PChar('GIT_TERMINAL_PROMPT'), PChar('0'));
+    try
+      if not CreateProcess(nil, PChar(CommandLine), nil, nil, True,
+        CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
+      begin
+        CodigoSaidaUltimoGit := GetLastError;
+        Result := 'Erro ao iniciar Git: ' + SysErrorMessage(CodigoSaidaUltimoGit);
+        Exit;
+      end;
+      ProcessoCriado := True;
+    finally
+      if PromptAnterior = '' then
+        SetEnvironmentVariable(PChar('GIT_TERMINAL_PROMPT'), nil)
+      else
+        SetEnvironmentVariable(PChar('GIT_TERMINAL_PROMPT'), PChar(PromptAnterior));
+    end;
+
+    CloseHandle(WritePipe);
+    WritePipe := 0;
+    CloseHandle(NulHandle);
+    NulHandle := INVALID_HANDLE_VALUE;
+    OutputStream := TMemoryStream.Create;
+    try
+      InicioTick := GetTickCount;
+      repeat
+        if (GetTickCount - InicioTick) >= TEMPO_MAXIMO_GIT_MS then
+        begin
+          EstourouTempo := True;
+          TerminateProcess(ProcessInfo.hProcess, 1);
+          WaitForSingleObject(ProcessInfo.hProcess, 5000);
+          Break;
+        end;
+        BytesDisponiveis := 0;
+        if PeekNamedPipe(ReadPipe, nil, 0, nil, @BytesDisponiveis, nil) and
+           (BytesDisponiveis > 0) then
+        begin
+          if BytesDisponiveis > SizeOf(Buffer) then
+            BytesParaLer := SizeOf(Buffer)
+          else
+            BytesParaLer := BytesDisponiveis;
+          if ReadFile(ReadPipe, Buffer, BytesParaLer, BytesRead, nil) and
+             (BytesRead > 0) then
+            OutputStream.WriteBuffer(Buffer, BytesRead);
+        end
+        else if WaitForSingleObject(ProcessInfo.hProcess, 50) = WAIT_OBJECT_0 then
+          Break;
+      until False;
+
+      // Recolhe a saida que ainda estiver no pipe apos o encerramento.
+      repeat
+        BytesDisponiveis := 0;
+        if not PeekNamedPipe(ReadPipe, nil, 0, nil, @BytesDisponiveis, nil) or
+           (BytesDisponiveis = 0) then
+          Break;
+        if BytesDisponiveis > SizeOf(Buffer) then
+          BytesParaLer := SizeOf(Buffer)
+        else
+          BytesParaLer := BytesDisponiveis;
+        if not ReadFile(ReadPipe, Buffer, BytesParaLer, BytesRead, nil) or
+           (BytesRead = 0) then
+          Break;
+        OutputStream.WriteBuffer(Buffer, BytesRead);
+      until False;
+
+      if not GetExitCodeProcess(ProcessInfo.hProcess, ExitCode) then
+        ExitCode := GetLastError;
+      if EstourouTempo then
+        CodigoSaidaUltimoGit := 1
+      else
+        CodigoSaidaUltimoGit := ExitCode;
+
+      if OutputStream.Size > 0 then
+      begin
+        SetLength(OutputBytes, OutputStream.Size);
+        OutputStream.Position := 0;
+        OutputStream.ReadBuffer(OutputBytes[0], Length(OutputBytes));
+        TextoSaida := Trim(TEncoding.UTF8.GetString(OutputBytes));
+      end
+      else
+        TextoSaida := '';
+
+      if EstourouTempo then
+        Result := 'O comando Git excedeu o limite de 30 minutos e foi encerrado para evitar bloqueio.'
+      else if (CodigoSaidaUltimoGit <> 0) and (TextoSaida = '') then
+        Result := Format('Git terminou com codigo %d sem retornar detalhes. Verifique autenticacao, rede e configuracao do repositorio.', [CodigoSaidaUltimoGit])
+      else
+        Result := TextoSaida;
+    finally
+      OutputStream.Free;
+      CloseHandle(ProcessInfo.hProcess);
+      CloseHandle(ProcessInfo.hThread);
+      ProcessoCriado := False;
+    end;
+  finally
+    if ProcessoCriado then
+    begin
+      TerminateProcess(ProcessInfo.hProcess, 1);
+      CloseHandle(ProcessInfo.hProcess);
+      CloseHandle(ProcessInfo.hThread);
+    end;
+    if NulHandle <> INVALID_HANDLE_VALUE then
+      CloseHandle(NulHandle);
+    if WritePipe <> 0 then
+      CloseHandle(WritePipe);
+    if ReadPipe <> 0 then
+      CloseHandle(ReadPipe);
+  end;
+
+  if ArquivoLogGlobal <> '' then
+    TFile.AppendAllText(ArquivoLogGlobal,
+      Format('[%s] git -C "%s" %s (exit %d)%s%s%s',
+        [DateTimeToStr(Now), Pasta, Comando, CodigoSaidaUltimoGit,
+         sLineBreak, Result, sLineBreak]), TEncoding.UTF8);
+end;
+function ExecutarComandoGitSSH(const Comando, Pasta: string): string;
+begin
+  Result := ExecutarComandoGit(Comando, Pasta);
+end;
+
+function ExecutarComandoGitSSHComEnv(const Comando, Pasta: string): string;
+begin
+  SSHAuthSock := GetSSHAuthSock;
+  Result := ExecutarComandoGit(Comando, Pasta);
+end;
+
+function BranchAtual(const Pasta: string; Exec: TGitExecutor): string;
+begin
+  Result := Trim(Exec('rev-parse --abbrev-ref HEAD', Pasta));
+end;
+
+function BranchExiste(const Pasta, Branch: string; Exec: TGitExecutor): Boolean;
+var
+  Resultado, BranchNormalizada, Linha: string;
+  Linhas: TArray<string>;
+begin
+  BranchNormalizada := Branch;
+
+  Resultado := Exec('branch --list --format="%(refname:short)"', Pasta);
+  Linhas := Resultado.Split([sLineBreak]);
+  Result := False;
+  for Linha in Linhas do
+    if Trim(Linha) = BranchNormalizada then
+      Exit(True);
+end;
+
+function BranchRemotaExiste(const Pasta, Branch: string; Exec: TGitExecutor): Boolean;
+var
+  Resultado, Linha: string;
+  Linhas: TArray<string>;
+begin
+  Resultado := Exec('for-each-ref --format="%(refname:short)" refs/remotes', Pasta);
+  Linhas := Resultado.Split([sLineBreak]);
+  Result := False;
+  for Linha in Linhas do
+    if Trim(Linha) = Branch then
+      Exit(True);
+end;
+function HaAlteracoesPendentes(const Pasta: string; Exec: TGitExecutor): Boolean;
 var
   Resultado: string;
-  BranchNormalizada: string;
+  Linhas: TArray<string>;
+  Linha: string;
+  AlteracaoValida: Boolean;
 begin
-  // Remove "remotes/" do início, se existir
-  if StartsText('remotes/origin/', Branch) then
-    BranchNormalizada := Copy(Branch, Length('remotes/origin/') + 1, MaxInt)
-  else
-    BranchNormalizada := Branch;
+  Resultado := Trim(Exec('status --porcelain', Pasta));
+  if CodigoSaidaUltimoGit <> 0 then
+    Exit(True);
+  Result := False;
 
-  // Lista todas as branches, incluindo remotas
-  Resultado := ExecutarComandoGit('branch -a', Pasta); // -a lista todas, inclusive remotas
+  if Resultado = '' then
+    Exit(False);
 
-  // Verifica se a branch existe (com ou sem o prefixo 'remotes/')
-  Result := Pos(BranchNormalizada, Resultado) > 0;
+  // Verifica se h� linhas com altera��o real (ex: come�a com " M", "??", etc)
+  AlteracaoValida := False;
+  Linhas := Resultado.Split([sLineBreak]);
+  for Linha in Linhas do
+  begin
+    var LinhaTrim := Trim(Linha);
+    if (Length(LinhaTrim) >= 2) and
+       ((LinhaTrim[1] in [' ', 'M', 'A', 'D', '?']) or (LinhaTrim[1] = '?')) then
+    begin
+      AlteracaoValida := True;
+      Break;
+    end;
+  end;
+
+  Result := AlteracaoValida;
+
+  if Result then
+    FGerenciadorDePastas.AdicionarLogNaTela('Altera��es pendentes detectadas:' + sLineBreak + Resultado)
+
 end;
 
-
-  function HaAlteracoesPendentes(const Pasta: string): Boolean;
-  var
-    Resultado: string;
-  begin
-    Resultado := ExecutarComandoGit('status --porcelain', Pasta);
-    Result := Trim(Resultado) <> '';
-    if Result then
-      FGerenciadorDePastas.AdicionarLogNaTela('Alterações detectadas na pasta "' + Pasta + '":' + sLineBreak + Resultado);
-  end;
 
 end.
 

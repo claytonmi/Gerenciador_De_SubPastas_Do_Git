@@ -2141,9 +2141,9 @@ object FFormFeedBack: TFFormFeedBack
   object Label2: TLabel
     Left = 16
     Top = 67
-    Width = 88
+    Width = 92
     Height = 15
-    Caption = 'Email de contao:'
+    Caption = 'Email de contato:'
   end
   object LblStatus: TLabel
     Left = 0
@@ -2153,6 +2153,20 @@ object FFormFeedBack: TFFormFeedBack
     Align = alBottom
     Alignment = taCenter
     ExplicitWidth = 3
+  end
+  object Label3: TLabel
+    Left = 16
+    Top = 105
+    Width = 46
+    Height = 15
+    Caption = 'Assunto:'
+  end
+  object LabelMensagem: TLabel
+    Left = 16
+    Top = 140
+    Width = 62
+    Height = 15
+    Caption = 'Mensagem:'
   end
   object EditNome: TEdit
     Left = 110
@@ -2169,14 +2183,23 @@ object FFormFeedBack: TFFormFeedBack
     Height = 23
     MaxLength = 60
     TabOrder = 1
+    OnExit = EditEmailExit
+  end
+  object EditAssunto: TEdit
+    Left = 110
+    Top = 102
+    Width = 379
+    Height = 23
+    MaxLength = 150
+    TabOrder = 2
   end
   object MemoMensagem: TMemo
     Left = 16
-    Top = 93
+    Top = 161
     Width = 473
-    Height = 276
+    Height = 208
     MaxLength = 1000
-    TabOrder = 2
+    TabOrder = 3
   end
   object BtnEnviar: TBitBtn
     Left = 16
@@ -2184,7 +2207,7 @@ object FFormFeedBack: TFFormFeedBack
     Width = 75
     Height = 25
     Caption = 'Enviar'
-    TabOrder = 3
+    TabOrder = 4
     OnClick = BtnEnviarClick
   end
   object BtnCancelar: TBitBtn
@@ -2193,36 +2216,7 @@ object FFormFeedBack: TFFormFeedBack
     Width = 75
     Height = 25
     Caption = 'Cancelar'
-    TabOrder = 4
+    TabOrder = 5
     OnClick = BtnCancelarClick
-  end
-  object IdSMTP1: TIdSMTP
-    SASLMechanisms = <>
-    Left = 432
-    Top = 272
-  end
-  object IdMessage1: TIdMessage
-    AttachmentEncoding = 'UUE'
-    BccList = <>
-    CCList = <>
-    Encoding = meDefault
-    FromList = <
-      item
-      end>
-    Recipients = <>
-    ReplyTo = <>
-    ConvertPreamble = True
-    Left = 432
-    Top = 208
-  end
-  object IdSSLIOHandlerSocketOpenSSL1: TIdSSLIOHandlerSocketOpenSSL
-    MaxLineAction = maException
-    Port = 0
-    DefaultPort = 0
-    SSLOptions.Mode = sslmUnassigned
-    SSLOptions.VerifyMode = []
-    SSLOptions.VerifyDepth = 0
-    Left = 424
-    Top = 328
   end
 end

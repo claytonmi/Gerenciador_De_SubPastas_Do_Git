@@ -4,8 +4,8 @@ object UConfiguracao: TUConfiguracao
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
   Caption = 'Configura'#231#227'o'
-  ClientHeight = 206
-  ClientWidth = 324
+  ClientHeight = 340
+  ClientWidth = 448
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -2127,130 +2127,169 @@ object UConfiguracao: TUConfiguracao
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
     FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF}
-  Menu = menuSeguranca
   Position = poScreenCenter
-  OnClose = FormClose
   OnCreate = FormCreate
-  OnKeyDown = FormKeyDown
   TextHeight = 15
   object LabelTex: TLabel
     Left = 16
     Top = 15
-    Width = 154
+    Width = 310
     Height = 15
-    Caption = 'Caminho da pasta Bin do Git'
+    Caption = 'Git: caminho da pasta que contem git.exe'
     Font.Charset = DEFAULT_CHARSET
     Font.Color = clWindowText
     Font.Height = -12
     Font.Name = 'Segoe UI'
     Font.Style = [fsBold]
     ParentFont = False
-  end
-  object Label1: TLabel
-    Left = 16
-    Top = 62
-    Width = 106
-    Height = 15
-    Caption = 'Caminho do PuTTY '
-    Font.Charset = DEFAULT_CHARSET
-    Font.Color = clWindowText
-    Font.Height = -12
-    Font.Name = 'Segoe UI'
-    Font.Style = [fsBold]
-    ParentFont = False
-  end
-  object LabelPuttyKey: TLabel
-    Left = 16
-    Top = 117
-    Width = 59
-    Height = 15
-    Caption = 'PuTTY Key'
-    Font.Charset = DEFAULT_CHARSET
-    Font.Color = clWindowText
-    Font.Height = -12
-    Font.Name = 'Segoe UI'
-    Font.Style = [fsBold]
-    ParentFont = False
-  end
-  object BtPesquisar: TBitBtn
-    Left = 231
-    Top = 36
-    Width = 81
-    Height = 23
-    Caption = 'Pesquisar'
-    TabOrder = 0
-    OnClick = BtPesquisarClick
   end
   object EdCaminhoGitText: TEdit
     Left = 16
     Top = 36
-    Width = 209
+    Width = 330
     Height = 23
+    TabOrder = 0
+    OnChange = EdCaminhoGitTextChange
+  end
+  object BtPesquisar: TBitBtn
+    Left = 354
+    Top = 36
+    Width = 78
+    Height = 23
+    Caption = 'Localizar'
     TabOrder = 1
+    OnClick = BtPesquisarClick
   end
-  object BtSalvar: TBitBtn
-    Left = 74
-    Top = 118
-    Width = 81
-    Height = 23
-    Caption = 'Salvar'
+  object LabelStatusGit: TLabel
+    Left = 16
+    Top = 63
+    Width = 400
+    Height = 17
+    Caption = 'Git ainda nao validado.'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -11
+    Font.Name = 'Segoe UI'
+    Font.Style = []
+    ParentFont = False
+  end
+  object LabelAuthTitle: TLabel
+    Left = 16
+    Top = 91
+    Width = 180
+    Height = 15
+    Caption = 'Autenticacao Git'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Segoe UI'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object LabelAuthHelp: TLabel
+    Left = 16
+    Top = 111
+    Width = 416
+    Height = 32
+    Caption = 'Padrao: usa as credenciais ja configuradas no Git/Windows (HTTPS, SSH ou GitHub CLI configurado como helper).'
+    WordWrap = True
+  end
+  object CheckUsarPuTTY: TCheckBox
+    Left = 16
+    Top = 148
+    Width = 416
+    Height = 22
+    Caption = 'Configurar PuTTY e chave PPK (opcao avancada)'
     TabOrder = 2
-    OnClick = BtSalvarClick
+    OnClick = CheckUsarPuTTYClick
   end
-  object BttSair: TBitBtn
-    Left = 161
-    Top = 118
-    Width = 81
-    Height = 23
-    Caption = 'Sair'
-    TabOrder = 3
-    OnClick = BttSairClick
+  object Label1: TLabel
+    Left = 16
+    Top = 181
+    Width = 300
+    Height = 15
+    Caption = 'Pasta do PuTTY (deve conter plink.exe)'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Segoe UI'
+    Font.Style = [fsBold]
+    ParentFont = False
   end
   object EdCaminhoPutty: TEdit
     Left = 16
-    Top = 82
-    Width = 209
+    Top = 201
+    Width = 330
     Height = 23
-    TabOrder = 4
+    TabOrder = 3
   end
   object BtPesquisarPuTTy: TBitBtn
-    Left = 231
-    Top = 82
-    Width = 81
+    Left = 354
+    Top = 201
+    Width = 78
     Height = 23
-    Caption = 'Pesquisar'
-    TabOrder = 5
+    Caption = 'Localizar'
+    TabOrder = 4
     OnClick = BtPesquisarPuTTyClick
+  end
+  object LabelPuttyKey: TLabel
+    Left = 16
+    Top = 232
+    Width = 250
+    Height = 15
+    Caption = 'Arquivo da chave privada PPK'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Segoe UI'
+    Font.Style = [fsBold]
+    ParentFont = False
   end
   object EditPuTTyKey: TEdit
     Left = 16
-    Top = 136
-    Width = 209
+    Top = 252
+    Width = 330
     Height = 23
-    TabOrder = 6
+    TabOrder = 5
   end
   object BTPuTTYKey: TBitBtn
-    Left = 231
-    Top = 136
-    Width = 81
+    Left = 354
+    Top = 252
+    Width = 78
     Height = 23
-    Caption = 'Pesquisar'
-    TabOrder = 7
+    Caption = 'Localizar'
+    TabOrder = 6
     OnClick = BTPuTTYKeyClick
+  end
+  object BtValidar: TBitBtn
+    Left = 16
+    Top = 294
+    Width = 95
+    Height = 27
+    Caption = 'Validar tudo'
+    TabOrder = 7
+    OnClick = BtValidarClick
+  end
+  object BtSalvar: TBitBtn
+    Left = 250
+    Top = 294
+    Width = 82
+    Height = 27
+    Caption = 'Salvar'
+    TabOrder = 8
+    OnClick = BtSalvarClick
+  end
+  object BttSair: TBitBtn
+    Left = 340
+    Top = 294
+    Width = 92
+    Height = 27
+    Caption = 'Cancelar'
+    TabOrder = 9
+    OnClick = BttSairClick
   end
   object OpenDialogConfiguracao: TOpenDialog
     Left = 48
-  end
-  object menuSeguranca: TMainMenu
-    Left = 248
-    Top = 144
-    object MenuCripto: TMenuItem
-      Caption = 'Seguran'#231'a'
-      Visible = False
-      object CriptografarArquivoEnv2: TMenuItem
-        Caption = 'Criptografar Arquivo Env'
-        OnClick = CriptografarArquivoEnv2Click
-      end
-    end
+    Top = 8
   end
 end

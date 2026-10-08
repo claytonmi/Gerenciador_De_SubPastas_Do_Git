@@ -10,12 +10,19 @@ uses
   UFeedBack in 'UFeedBack.pas' {FFormFeedBack};
 
 {$R *.res}
+var
+  CaminhoDebug: string;
 
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.CreateForm(TFGerenciadorDePastas, FGerenciadorDePastas);
-  if ParamCount > 0 then
+  CaminhoDebug := GetEnvironmentVariable('GERENCIADOR_DEBUG');
+  if CaminhoDebug <> '' then
+  begin
+    VerificarRepositoriosGit(CaminhoDebug);
+  end
+  else if ParamCount > 0 then
   begin
     VerificarRepositoriosGit(ParamStr(1));
   end;

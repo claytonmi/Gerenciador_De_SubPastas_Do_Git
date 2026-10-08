@@ -2,3 +2,8 @@ config/.env
 ConfigDescritp/.env
 Win32/
 Win64/
+
+.env
+.env.*
+.env.enc
+FeedbackConfig.ini
