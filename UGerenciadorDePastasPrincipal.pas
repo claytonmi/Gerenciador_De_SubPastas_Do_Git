@@ -47,9 +47,14 @@ type
     procedure FormShow(Sender: TObject);
 
   private
-    { Private declarations }
+    FBranchesDisponiveis: TStringList;
+    FAtualizandoComboBranch: Boolean;
+    procedure AtualizarListaBranches;
+    procedure DefinirListaBranches(const Branches: TStrings);
+    procedure ComboBoxBranchChange(Sender: TObject);
   public
-     procedure AdicionarLogNaTela(const Msg: string);
+    destructor Destroy; override;
+    procedure AdicionarLogNaTela(const Msg: string);
     { Public declarations }
   end;
 
@@ -266,7 +271,6 @@ var
   I: Integer;
   CaminhoCompleto: string;
 begin
-  ComboBoxBranch.Items.Clear;
   btIniciar.Enabled := False;
   Repositorios := TStringList.Create;
   ListaBranches := TStringList.Create;
@@ -293,9 +297,7 @@ begin
     CaminhoGit := LerCaminhoGitDoINI();
     // Chama o método que obtém e ordena os branches
     ObterBranchesUnicas(CaminhoGit, Repositorios, ListaBranches);
-    btIniciar.Enabled := true;
-
-    ComboBoxBranch.Items.AddStrings(ListaBranches);
+    DefinirListaBranches(ListaBranches);
 
   finally
     Repositorios.Free;
@@ -342,12 +344,87 @@ begin
   ComboBoxSubPastas.ItemIndex := 0;
 end;
 
+destructor TFGerenciadorDePastas.Destroy;
+begin
+  FBranchesDisponiveis.Free;
+  inherited;
+end;
+
+procedure TFGerenciadorDePastas.DefinirListaBranches(const Branches: TStrings);
+begin
+  if Branches <> FBranchesDisponiveis then
+    FBranchesDisponiveis.Assign(Branches);
+
+  FAtualizandoComboBranch := True;
+  try
+    ComboBoxBranch.Items.BeginUpdate;
+    try
+      ComboBoxBranch.Items.Assign(FBranchesDisponiveis);
+      ComboBoxBranch.Text := '';
+    finally
+      ComboBoxBranch.Items.EndUpdate;
+    end;
+  finally
+    FAtualizandoComboBranch := False;
+  end;
+  btIniciar.Enabled := False;
+end;
+
+procedure TFGerenciadorDePastas.AtualizarListaBranches;
+var
+  TextoBusca, Branch: string;
+  PosicaoCursor: Integer;
+begin
+  if FAtualizandoComboBranch then
+    Exit;
+
+  TextoBusca := ComboBoxBranch.Text;
+  PosicaoCursor := ComboBoxBranch.SelStart;
+  FAtualizandoComboBranch := True;
+  try
+    ComboBoxBranch.Items.BeginUpdate;
+    try
+      ComboBoxBranch.Items.Clear;
+      for Branch in FBranchesDisponiveis do
+        if (TextoBusca = '') or ContainsText(Branch, TextoBusca) then
+          ComboBoxBranch.Items.Add(Branch);
+    finally
+      ComboBoxBranch.Items.EndUpdate;
+    end;
+    ComboBoxBranch.Text := TextoBusca;
+    if PosicaoCursor > Length(TextoBusca) then
+      PosicaoCursor := Length(TextoBusca);
+    ComboBoxBranch.SelStart := PosicaoCursor;
+    ComboBoxBranch.SelLength := 0;
+  finally
+    FAtualizandoComboBranch := False;
+  end;
+
+  ComboBoxBranch.DroppedDown := (TextoBusca <> '') and (ComboBoxBranch.Items.Count > 0);
+  btIniciar.Enabled := ComboBoxBranch.Items.IndexOf(ComboBoxBranch.Text) >= 0;
+end;
+
+procedure TFGerenciadorDePastas.ComboBoxBranchChange(Sender: TObject);
+begin
+  if FAtualizandoComboBranch then
+    Exit;
+
+  if ComboBoxBranch.ItemIndex >= 0 then
+  begin
+    btIniciar.Enabled := True;
+    Exit;
+  end;
+
+  AtualizarListaBranches;
+end;
 procedure TFGerenciadorDePastas.FormCreate(Sender: TObject);
 var
   DataHoje, CaminhoDebug, ArquivoLogAtual, CaminhoGit, CaminhoProjetos: string;
   InfoArq: TSearchRec;
 begin
-  btIniciar.Enabled:=false;
+  FBranchesDisponiveis := TStringList.Create;
+  ComboBoxBranch.OnChange := ComboBoxBranchChange;
+  btIniciar.Enabled := False;
   OnLogMensagem := AdicionarLogNaTela;
   ValidarConfiguracaoGit;
   CaminhoDebug := GetEnvironmentVariable('GERENCIADOR_DEBUG');
@@ -385,10 +462,12 @@ begin
   ComboBoxBranch.Enabled := False;
   ComboBoxSubPastas.Enabled := False;
   AdicionarLogNaTela('Carregando branches locais e referencias remotas em cache; nenhum fetch sera executado.');
-  ObterBranchesUnicas(LerCaminhoGitDoINI, ListaDeRepositoriosGit, ComboBoxBranch.Items);
+  FBranchesDisponiveis.Clear;
+  ObterBranchesUnicas(LerCaminhoGitDoINI, ListaDeRepositoriosGit, FBranchesDisponiveis);
+  DefinirListaBranches(FBranchesDisponiveis);
   ComboBoxBranch.Enabled := True;
   ComboBoxSubPastas.Enabled := True;
-  btIniciar.Enabled := ComboBoxBranch.Items.Count > 0;
+  btIniciar.Enabled := False;
   AdicionarLogNaTela('Branches locais e remotas carregadas.');
 end;
 procedure TFGerenciadorDePastas.GuiaDeUsoClick(Sender: TObject);
