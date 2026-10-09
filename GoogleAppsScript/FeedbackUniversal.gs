@@ -8,7 +8,7 @@
  * `system` identifica o aplicativo. `website` deve ficar vazio (honeypot).
  * Também aceita `app`, `application` e os nomes legados em português.
  */
-const FEEDBACK_DESTINATION = 'clayton-mi@live.com';
+const FEEDBACK_DESTINATION = 'SeuEmailaqui@Email.com';
 const MAX_FEEDBACK_PER_DAY = 30;
 const PER_SENDER_INTERVAL_SECONDS = 60;
 const DEFAULT_SYSTEM_NAME = 'Sistema não identificado';
