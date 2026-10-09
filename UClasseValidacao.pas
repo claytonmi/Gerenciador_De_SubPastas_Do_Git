@@ -647,6 +647,15 @@ begin
   Result := ExecutarComandoGit(Comando, Pasta);
 end;
 
+function DividirLinhasGit(const Texto: string): TArray<string>;
+var
+  TextoNormalizado: string;
+begin
+  // Git normalmente emite LF mesmo quando o aplicativo roda no Windows.
+  TextoNormalizado := StringReplace(Texto, #13#10, #10, [rfReplaceAll]);
+  TextoNormalizado := StringReplace(TextoNormalizado, #13, #10, [rfReplaceAll]);
+  Result := TextoNormalizado.Split([#10]);
+end;
 function BranchAtual(const Pasta: string; Exec: TGitExecutor): string;
 begin
   Result := Trim(Exec('rev-parse --abbrev-ref HEAD', Pasta));
@@ -660,7 +669,7 @@ begin
   BranchNormalizada := Branch;
 
   Resultado := Exec('branch --list --format="%(refname:short)"', Pasta);
-  Linhas := Resultado.Split([sLineBreak]);
+  Linhas := DividirLinhasGit(Resultado);
   Result := False;
   for Linha in Linhas do
     if Trim(Linha) = BranchNormalizada then
@@ -673,7 +682,7 @@ var
   Linhas: TArray<string>;
 begin
   Resultado := Exec('for-each-ref --format="%(refname:short)" refs/remotes', Pasta);
-  Linhas := Resultado.Split([sLineBreak]);
+  Linhas := DividirLinhasGit(Resultado);
   Result := False;
   for Linha in Linhas do
     if Trim(Linha) = Branch then
@@ -696,7 +705,7 @@ begin
 
   // Verifica se há linhas com alteração real (ex: começa com " M", "??", etc)
   AlteracaoValida := False;
-  Linhas := Resultado.Split([sLineBreak]);
+  Linhas := DividirLinhasGit(Resultado);
   for Linha in Linhas do
   begin
     var LinhaTrim := Trim(Linha);

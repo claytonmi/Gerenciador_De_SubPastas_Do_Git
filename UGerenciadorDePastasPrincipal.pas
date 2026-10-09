@@ -226,7 +226,7 @@ begin
       else
         AdicionarLogNaTela('Branch ja estava selecionada.');
 
-      if (BranchRemota <> '') and BranchLocalExiste then
+      if BranchRemota <> '' then
         Resultado := Executar('pull --ff-only ' + NomeRemoto + ' ' + NomeBranchRemota, PastaRepo)
       else
         Resultado := Executar('pull --ff-only', PastaRepo);
