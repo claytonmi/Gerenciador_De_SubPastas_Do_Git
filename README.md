@@ -23,6 +23,10 @@ O sistema permite que o usuário:
 ### 🛠 Instalação
 O sistema é distribuído em formato executável e está disponível nas versões 32 bits e 64 bits.
 
+[![Baixar instalador do Gerenciador de Pastas do Git](https://img.shields.io/badge/Baixar-Instalador%20(32%20e%2064%20bits)-2ea44f?style=for-the-badge)](https://github.com/claytonmi/Gerenciador_De_SubPastas_Do_Git/raw/refs/heads/main/Download/GerenciadorDePastasDoGit-Setup.exe)
+
+O botão baixa diretamente o instalador disponível na pasta `Download` deste repositório. Em Windows 64 bits, o instalador permite escolher a versão de 32 ou 64 bits; em Windows 32 bits, instala a versão de 32 bits.
+
 ### ⚙️ Como instalar:
 1.Baixe o instalador apropriado para sua arquitetura (32 ou 64 bits).
 
