@@ -3,11 +3,12 @@ param(
     [switch]$Uninstall
 )
 
-$verbKey = 'HKCU:\Software\Classes\Directory\shell\GerenciadorDePastasGit'
-$commandKey = Join-Path $verbKey 'command'
+$folderVerbKey = 'HKCU:\Software\Classes\Directory\shell\GerenciadorDePastasGit'
+$backgroundVerbKey = 'HKCU:\Software\Classes\Directory\Background\shell\GerenciadorDePastasGit'
 
 if ($Uninstall) {
-    Remove-Item -LiteralPath $verbKey -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $folderVerbKey -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $backgroundVerbKey -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host 'Context menu entry removed for the current Windows user.'
     exit 0
 }
@@ -21,10 +22,16 @@ if ([System.IO.Path]::GetFileName($resolvedExe) -ne 'GerenciadorDePastas.exe') {
     throw 'ExecutablePath must point to GerenciadorDePastas.exe.'
 }
 
-New-Item -Path $commandKey -Force | Out-Null
-Set-Item -LiteralPath $verbKey -Value 'Abrir Gerenciador de Pastas Git'
-Set-ItemProperty -LiteralPath $verbKey -Name 'Icon' -Value $resolvedExe
-Set-Item -LiteralPath $commandKey -Value ('"{0}" "%1"' -f $resolvedExe)
+foreach ($entry in @(
+    @{ VerbKey = $folderVerbKey; Argument = '%1' },
+    @{ VerbKey = $backgroundVerbKey; Argument = '%V' }
+)) {
+    $commandKey = Join-Path $entry.VerbKey 'command'
+    New-Item -Path $commandKey -Force | Out-Null
+    Set-Item -LiteralPath $entry.VerbKey -Value 'Abrir Gerenciador de Pastas Git'
+    Set-ItemProperty -LiteralPath $entry.VerbKey -Name 'Icon' -Value $resolvedExe
+    Set-Item -LiteralPath $commandKey -Value ('"{0}" "{1}"' -f $resolvedExe, $entry.Argument)
+}
 
 Write-Host 'Context menu entry installed for the current Windows user.'
-Write-Host 'Right-click a folder to open it as the search root.'
+Write-Host 'Right-click a folder or its background to open it as the search root.'

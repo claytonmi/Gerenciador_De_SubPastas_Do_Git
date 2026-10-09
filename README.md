@@ -88,7 +88,7 @@ que precisa autorizar o envio pelo `MailApp`. Os outros aplicativos devem enviar
 
 ### Integração com o menu de contexto do Windows
 
-O projeto inclui o script InstalarMenuContextoGit.ps1 para registrar a opção no menu de pastas do usuário atual. Depois de compilar o programa, execute no PowerShell:
+O projeto inclui o script InstalarMenuContextoGit.ps1 para registrar a opção no menu de contexto do usuário atual. Depois de compilar o programa, execute no PowerShell:
 
     .\InstalarMenuContextoGit.ps1 -ExecutablePath "C:\caminho\para\GerenciadorDePastas.exe"
 
@@ -96,7 +96,7 @@ Para remover a opção:
 
     .\InstalarMenuContextoGit.ps1 -Uninstall
 
-Ao clicar com o botão direito em uma pasta e abrir o Gerenciador, essa pasta será a raiz da busca. O programa considera somente os repositórios Git que estão diretamente dentro dela, em ordem alfabética; não desce para subpastas. No Windows 11, a opção pode aparecer em Mostrar mais opções.
+Ao clicar com o botão direito em uma pasta ou em uma área vazia dentro dela e abrir o Gerenciador, essa pasta será a raiz da busca. O programa considera somente os repositórios Git que estão diretamente dentro dela, em ordem alfabética; não desce para subpastas. No Windows 11, a opção pode aparecer em Mostrar mais opções.
 
 ### Operacao Git
 

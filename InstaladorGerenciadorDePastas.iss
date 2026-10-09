@@ -51,6 +51,10 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename:
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\GerenciadorDePastasGit"; ValueType: string; ValueName: ""; ValueData: "Abrir Gerenciador de Pastas Git"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\GerenciadorDePastasGit"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#AppIconName}"
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\GerenciadorDePastasGit\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""
+; Menu ao clicar em uma área vazia dentro de uma pasta. %V representa a pasta aberta.
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\GerenciadorDePastasGit"; ValueType: string; ValueName: ""; ValueData: "Abrir Gerenciador de Pastas Git"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\GerenciadorDePastasGit"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#AppIconName}"
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\GerenciadorDePastasGit\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%V"""
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Abrir {#AppName}"; Flags: postinstall nowait skipifsilent
