@@ -2143,7 +2143,7 @@ object FGerenciadorDePastas: TFGerenciadorDePastas
     object Label1: TLabel
       Left = 24
       Top = 56
-      Width = 42
+      Width = 146
       Height = 15
       Caption = 'Branches (digite para filtrar)'
     end
@@ -2159,11 +2159,10 @@ object FGerenciadorDePastas: TFGerenciadorDePastas
       Top = 77
       Width = 449
       Height = 23
-      AutoComplete = False
       Hint = 'Digite parte do nome da branch para filtrar'
+      AutoComplete = False
       ParentShowHint = False
       ShowHint = True
-      Style = csDropDown
       TabOrder = 0
     end
     object MemoLogNaTela: TRichEdit

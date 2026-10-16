@@ -12,6 +12,30 @@ procedure VerificarRepositoriosGit(const Caminho: string);
 
 
 type
+  TFGerenciadorDePastas = class;
+
+  TGitBatchThread = class(TThread)
+  private
+    FForm: TFGerenciadorDePastas;
+    FBranchSelecionada: string;
+    FRepositorios: TStringList;
+    FMensagemPendente: string;
+    FPosicaoProgresso: Integer;
+    FErro: Boolean;
+    procedure PublicarLog;
+    procedure PublicarProgresso;
+    procedure FinalizarNaInterface;
+    procedure RegistrarLog(const Msg: string);
+    procedure AtualizarProgresso(const Posicao: Integer);
+    procedure ProcessarRepositorio(const PastaRepo: string);
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(AForm: TFGerenciadorDePastas; const Branch: string;
+      const Repositorios: TStrings);
+    destructor Destroy; override;
+  end;
+
   TFGerenciadorDePastas = class(TForm)
     btIniciar: TBitBtn;
     btSair: TBitBtn;
@@ -42,13 +66,14 @@ type
     procedure GuiaDeUsoClick(Sender: TObject);
     procedure ReportdebugClick(Sender: TObject);
     procedure PreencherComboBoxSubPastas;
-    procedure CarregamentoProgress;
     procedure ComboBoxSubPastasChange(Sender: TObject);
     procedure FormShow(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 
   private
     FBranchesDisponiveis: TStringList;
     FAtualizandoComboBranch: Boolean;
+    FWorker: TGitBatchThread;
     procedure AtualizarListaBranches;
     procedure DefinirListaBranches(const Branches: TStrings);
     procedure ComboBoxBranchChange(Sender: TObject);
@@ -59,11 +84,9 @@ type
   end;
 
 var
-  HouveErro: Boolean;
   FGerenciadorDePastas: TFGerenciadorDePastas;
   ListaDeRepositoriosGit: TStringList;
   SSHAuthSock: string;
-  Executar: function(const Comando, Pasta: string): string;
 
 
 implementation
@@ -87,17 +110,6 @@ begin
   Clipboard.AsText := MemoLogNaTela.Text;
 end;
 
-procedure TFGerenciadorDePastas.CarregamentoProgress;
-begin
-  ProgressBarCarregamento.Min := 0;
-  ProgressBarCarregamento.Max := 100;
-
-  if ProgressBarCarregamento.Position + 10 <= ProgressBarCarregamento.Max then
-    ProgressBarCarregamento.Position := ProgressBarCarregamento.Position + 25
-  else
-    ProgressBarCarregamento.Position := ProgressBarCarregamento.Max;
-end;
-
 function ComandoFalhou(const Resultado: string): Boolean;
 begin
   Result := (CodigoSaidaUltimoGit <> 0) or
@@ -106,18 +118,210 @@ begin
     (Pos('conflict', LowerCase(Resultado)) > 0);
 end;
 
-procedure TFGerenciadorDePastas.btIniciarClick(Sender: TObject);
+constructor TGitBatchThread.Create(AForm: TFGerenciadorDePastas;
+  const Branch: string; const Repositorios: TStrings);
+begin
+  inherited Create(True);
+  FreeOnTerminate := True;
+  FForm := AForm;
+  FBranchSelecionada := Branch;
+  FRepositorios := TStringList.Create;
+  FRepositorios.Assign(Repositorios);
+end;
+
+destructor TGitBatchThread.Destroy;
+begin
+  FRepositorios.Free;
+  inherited;
+end;
+
+procedure TGitBatchThread.PublicarLog;
+begin
+  if Assigned(FForm) then
+    FForm.AdicionarLogNaTela(FMensagemPendente);
+end;
+
+procedure TGitBatchThread.RegistrarLog(const Msg: string);
+begin
+  FMensagemPendente := Msg;
+  Synchronize(PublicarLog);
+end;
+
+procedure TGitBatchThread.PublicarProgresso;
+begin
+  if Assigned(FForm) then
+    FForm.ProgressBarCarregamento.Position := FPosicaoProgresso;
+end;
+
+procedure TGitBatchThread.AtualizarProgresso(const Posicao: Integer);
+begin
+  FPosicaoProgresso := Posicao;
+  Synchronize(PublicarProgresso);
+end;
+
+procedure TGitBatchThread.FinalizarNaInterface;
+begin
+  if not Assigned(FForm) then
+    Exit;
+
+  if FErro then
+    FForm.AdicionarLogNaTela('Processo concluido com repositorios ignorados ou erros.')
+  else
+    FForm.AdicionarLogNaTela('Processo concluido com sucesso.');
+
+  FForm.btIniciar.Enabled :=
+    FForm.ComboBoxBranch.Items.IndexOf(FForm.ComboBoxBranch.Text) >= 0;
+  FForm.btSair.Enabled := True;
+  FForm.ComboBoxBranch.Enabled := True;
+  FForm.ComboBoxSubPastas.Enabled := True;
+  FForm.Configuracao.Enabled := True;
+  FForm.FWorker := nil;
+end;
+
+procedure TGitBatchThread.ProcessarRepositorio(const PastaRepo: string);
 var
-  BranchSelecionada, PastaSelecionada, PastaRepo, Resultado: string;
-  BranchLocal, BranchRemota, NomeRemoto, NomeBranchRemota: string;
+  BranchLocal, BranchRemota, NomeRemoto, NomeBranchRemota, Resultado: string;
   BranchLocalExiste: Boolean;
   Separador: Integer;
+begin
+  RegistrarLog('Processando: ' + PastaRepo);
+  if ArquivoLogGlobal <> '' then
+    TFile.AppendAllText(ArquivoLogGlobal,
+      Format('Processando repositorio: %s | branch: %s%s',
+        [PastaRepo, FBranchSelecionada, sLineBreak]), TEncoding.UTF8);
+
+  BranchLocal := FBranchSelecionada;
+  BranchRemota := '';
+  NomeRemoto := '';
+  NomeBranchRemota := '';
+  BranchLocalExiste := False;
+
+  if StartsText('remotes/', FBranchSelecionada) then
+  begin
+    BranchRemota := Copy(FBranchSelecionada, Length('remotes/') + 1, MaxInt);
+    Separador := Pos('/', BranchRemota);
+    if Separador = 0 then
+    begin
+      RegistrarLog('Referencia remota invalida; repositorio ignorado: ' + FBranchSelecionada);
+      FErro := True;
+      Exit;
+    end;
+    NomeRemoto := Copy(BranchRemota, 1, Separador - 1);
+    NomeBranchRemota := Copy(BranchRemota, Separador + 1, MaxInt);
+    BranchLocal := NomeBranchRemota;
+  end;
+
+  if BranchRemota <> '' then
+  begin
+    RegistrarLog('Verificando a branch remota no repositorio...');
+    if not BranchRemotaExiste(PastaRepo, BranchRemota, ExecutarComandoGit) then
+    begin
+      RegistrarLog('Branch remota ausente; repositorio ignorado: ' + PastaRepo);
+      FErro := True;
+      Exit;
+    end;
+    BranchLocalExiste := BranchExiste(PastaRepo, BranchLocal, ExecutarComandoGit);
+    if BranchLocalExiste then
+      RegistrarLog('Branch local existente sera atualizada pela referencia remota selecionada: ' + BranchRemota)
+    else
+      RegistrarLog('Branch local inexistente; sera criada a partir de: ' + BranchRemota);
+  end
+  else
+  begin
+    RegistrarLog('Verificando a branch local no repositorio...');
+    if not BranchExiste(PastaRepo, BranchLocal, ExecutarComandoGit) then
+    begin
+      RegistrarLog('Branch local ausente; repositorio ignorado: ' + PastaRepo);
+      FErro := True;
+      Exit;
+    end;
+  end;
+
+  RegistrarLog('Verificando alteracoes locais...');
+  if HaAlteracoesPendentes(PastaRepo, ExecutarComandoGit) then
+  begin
+    RegistrarLog('Alteracoes locais ou erro de status; repositorio ignorado: ' + PastaRepo);
+    FErro := True;
+    Exit;
+  end;
+
+  RegistrarLog('Verificando a branch atualmente selecionada...');
+  if BranchAtual(PastaRepo, ExecutarComandoGit) <> BranchLocal then
+  begin
+    RegistrarLog('Executando checkout...');
+    if (BranchRemota <> '') and not BranchLocalExiste then
+      Resultado := ExecutarComandoGit('checkout --track -b ' + BranchLocal + ' ' + BranchRemota, PastaRepo)
+    else
+      Resultado := ExecutarComandoGit('checkout ' + BranchLocal, PastaRepo);
+    if ComandoFalhou(Resultado) then
+    begin
+      RegistrarLog('Checkout falhou; pull nao executado: ' + Trim(Resultado));
+      FErro := True;
+      Exit;
+    end;
+  end
+  else
+    RegistrarLog('Branch ja estava selecionada.');
+
+  RegistrarLog('Executando pull --ff-only...');
+  if BranchRemota <> '' then
+    Resultado := ExecutarComandoGit('pull --ff-only ' + NomeRemoto + ' ' + NomeBranchRemota, PastaRepo)
+  else
+    Resultado := ExecutarComandoGit('pull --ff-only', PastaRepo);
+
+  if ComandoFalhou(Resultado) then
+  begin
+    RegistrarLog('Pull falhou: ' + Trim(Resultado));
+    FErro := True;
+  end
+  else
+    RegistrarLog('Checkout/pull concluido em: ' + PastaRepo);
+end;
+
+procedure TGitBatchThread.Execute;
+var
+  I: Integer;
+begin
+  FErro := False;
+  try
+    try
+      for I := 0 to FRepositorios.Count - 1 do
+      begin
+        try
+          ProcessarRepositorio(FRepositorios[I]);
+        except
+          on E: Exception do
+          begin
+            RegistrarLog('Erro ao processar repositorio ' + FRepositorios[I] + ': ' + E.Message);
+            FErro := True;
+          end;
+        end;
+        AtualizarProgresso(((I + 1) * 100) div FRepositorios.Count);
+      end;
+      if FRepositorios.Count = 0 then
+        AtualizarProgresso(100);
+    except
+      on E: Exception do
+      begin
+        FErro := True;
+        RegistrarLog('Erro inesperado no processamento: ' + E.Message);
+      end;
+    end;
+  finally
+    Synchronize(FinalizarNaInterface);
+  end;
+end;
+procedure TFGerenciadorDePastas.btIniciarClick(Sender: TObject);
+var
+  BranchSelecionada, PastaSelecionada: string;
   Repositorios: TStringList;
   I: Integer;
 begin
+  if Assigned(FWorker) then
+    Exit;
+
   BranchSelecionada := Trim(ComboBoxBranch.Text);
   PastaSelecionada := ComboBoxSubPastas.Text;
-
   if BranchSelecionada = '' then
   begin
     ShowMessage('Selecione uma branch local ou remota antes de iniciar.');
@@ -143,126 +347,54 @@ begin
     end;
 
     btIniciar.Enabled := False;
+    btSair.Enabled := False;
     ComboBoxBranch.Enabled := False;
     ComboBoxSubPastas.Enabled := False;
+    Configuracao.Enabled := False;
     MemoLogNaTela.Clear;
+    ProgressBarCarregamento.Min := 0;
+    ProgressBarCarregamento.Max := 100;
     ProgressBarCarregamento.Position := 0;
-    HouveErro := False;
-    Executar := ExecutarComandoGit;
-
     AdicionarLogNaTela('Branch selecionada: ' + BranchSelecionada);
     AdicionarLogNaTela('A operacao usa somente checkout e pull --ff-only.');
+    AdicionarLogNaTela('Os repositorios serao processados em sequencia.');
 
-    for I := 0 to Repositorios.Count - 1 do
-    begin
-      PastaRepo := Repositorios[I];
-      AdicionarLogNaTela('Processando: ' + PastaRepo);
-
-      if ArquivoLogGlobal <> '' then
-        TFile.AppendAllText(ArquivoLogGlobal,
-          Format('Processando repositorio: %s | branch: %s%s',
-            [PastaRepo, BranchSelecionada, sLineBreak]), TEncoding.UTF8);
-
-      BranchLocal := BranchSelecionada;
-      BranchRemota := '';
-      NomeRemoto := '';
-      NomeBranchRemota := '';
-      BranchLocalExiste := False;
-      if StartsText('remotes/', BranchSelecionada) then
+    try
+      FWorker := TGitBatchThread.Create(Self, BranchSelecionada, Repositorios);
+      FWorker.Start;
+    except
+      on E: Exception do
       begin
-        BranchRemota := Copy(BranchSelecionada, Length('remotes/') + 1, MaxInt);
-        Separador := Pos('/', BranchRemota);
-        if Separador = 0 then
-        begin
-          AdicionarLogNaTela('Referencia remota invalida; repositorio ignorado: ' + BranchSelecionada);
-          HouveErro := True;
-          CarregamentoProgress;
-          Continue;
-        end;
-        NomeRemoto := Copy(BranchRemota, 1, Separador - 1);
-        NomeBranchRemota := Copy(BranchRemota, Separador + 1, MaxInt);
-        BranchLocal := NomeBranchRemota;
+        FreeAndNil(FWorker);
+        btSair.Enabled := True;
+        ComboBoxBranch.Enabled := True;
+        ComboBoxSubPastas.Enabled := True;
+        Configuracao.Enabled := True;
+        btIniciar.Enabled := ComboBoxBranch.Items.IndexOf(ComboBoxBranch.Text) >= 0;
+        AdicionarLogNaTela('Nao foi possivel iniciar o processamento em segundo plano: ' + E.Message);
       end;
-
-      if BranchRemota <> '' then
-      begin
-        if not BranchRemotaExiste(PastaRepo, BranchRemota, Executar) then
-        begin
-          AdicionarLogNaTela('Branch remota ausente; repositorio ignorado: ' + PastaRepo);
-          HouveErro := True;
-          CarregamentoProgress;
-          Continue;
-        end;
-        BranchLocalExiste := BranchExiste(PastaRepo, BranchLocal, Executar);
-        if BranchLocalExiste then
-          AdicionarLogNaTela('Branch local existente sera atualizada pela referencia remota selecionada: ' + BranchRemota)
-        else
-          AdicionarLogNaTela('Branch local inexistente; sera criada a partir de: ' + BranchRemota);
-      end
-      else if not BranchExiste(PastaRepo, BranchLocal, Executar) then
-      begin
-        AdicionarLogNaTela('Branch local ausente; repositorio ignorado: ' + PastaRepo);
-        HouveErro := True;
-        CarregamentoProgress;
-        Continue;
-      end;
-      if HaAlteracoesPendentes(PastaRepo, Executar) then
-      begin
-        AdicionarLogNaTela('Alteracoes locais ou erro de status; repositorio ignorado: ' + PastaRepo);
-        HouveErro := True;
-        CarregamentoProgress;
-        Continue;
-      end;
-
-      if BranchAtual(PastaRepo, Executar) <> BranchLocal then
-      begin
-        if (BranchRemota <> '') and not BranchLocalExiste then
-          Resultado := Executar('checkout --track -b ' + BranchLocal + ' ' + BranchRemota, PastaRepo)
-        else
-          Resultado := Executar('checkout ' + BranchLocal, PastaRepo);
-        if ComandoFalhou(Resultado) then
-        begin
-          AdicionarLogNaTela('Checkout falhou; pull nao executado: ' + Trim(Resultado));
-          HouveErro := True;
-          CarregamentoProgress;
-          Continue;
-        end;
-      end
-      else
-        AdicionarLogNaTela('Branch ja estava selecionada.');
-
-      if BranchRemota <> '' then
-        Resultado := Executar('pull --ff-only ' + NomeRemoto + ' ' + NomeBranchRemota, PastaRepo)
-      else
-        Resultado := Executar('pull --ff-only', PastaRepo);
-      if ComandoFalhou(Resultado) then
-      begin
-        AdicionarLogNaTela('Pull falhou: ' + Trim(Resultado));
-        HouveErro := True;
-      end
-      else
-        AdicionarLogNaTela('Checkout/pull concluido em: ' + PastaRepo);
-
-      CarregamentoProgress;
     end;
-
-    if HouveErro then
-      AdicionarLogNaTela('Processo concluido com repositorios ignorados ou erros.')
-    else
-      AdicionarLogNaTela('Processo concluido com sucesso.');
   finally
-    btIniciar.Enabled := True;
-    ComboBoxBranch.Enabled := True;
-    ComboBoxSubPastas.Enabled := True;
     Repositorios.Free;
   end;
 end;
-
 procedure TFGerenciadorDePastas.btSairClick(Sender: TObject);
 begin
+  if Assigned(FWorker) then
+  begin
+    ShowMessage('Aguarde o processamento dos repositorios terminar antes de sair.');
+    Exit;
+  end;
   Application.Terminate;
 end;
 
+procedure TFGerenciadorDePastas.FormCloseQuery(Sender: TObject;
+  var CanClose: Boolean);
+begin
+  CanClose := not Assigned(FWorker);
+  if not CanClose then
+    ShowMessage('O processamento Git ainda esta em andamento. Aguarde a conclusao antes de fechar o programa.');
+end;
 procedure TFGerenciadorDePastas.ComboBoxSubPastasChange(Sender: TObject);
 var
   SubpastaSelecionada: string;
@@ -426,6 +558,8 @@ begin
   ComboBoxBranch.OnChange := ComboBoxBranchChange;
   btIniciar.Enabled := False;
   OnLogMensagem := AdicionarLogNaTela;
+  OnCloseQuery := FormCloseQuery;
+  FWorker := nil;
   ValidarConfiguracaoGit;
   CaminhoDebug := GetEnvironmentVariable('GERENCIADOR_DEBUG');
   if CaminhoDebug <> '' then
